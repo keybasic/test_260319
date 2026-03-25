@@ -9,7 +9,7 @@ function Home() {
       <main className="mx-auto max-w-6xl px-6 py-8">
         <section className="mb-8">
           <h1 className="text-2xl font-bold text-slate-800">
-            📚 오늘의 기하 연습
+             오늘의 기하 연습
           </h1>
           <p className="mt-1 text-slate-600">
             문제를 골라 정당화를 연습해 보세요.

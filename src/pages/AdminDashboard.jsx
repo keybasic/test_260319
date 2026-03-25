@@ -107,7 +107,7 @@ function AdminDashboard() {
               ⚙️ 문제 설정
             </h1>
             <p className="mt-1 text-slate-600">
-              문제 명제, 도형 이미지, 풀이법, 평가 루브릭을 설정하세요.
+              문제 명제, 도형 이미지, 학생 풀이 방법, 평가 루브릭을 설정하세요.
             </p>
 
             <div className="mt-8 space-y-6">
