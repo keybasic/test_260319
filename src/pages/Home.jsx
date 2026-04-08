@@ -1,8 +1,10 @@
 import Header from '../components/Header';
 import ProblemCard from '../components/ProblemCard';
-import { problemCards } from '../data/mockData';
+import { useProblems } from '../context/ProblemsContext';
 
 function Home() {
+  const { problems } = useProblems();
+
   return (
     <div className="min-h-screen bg-slate-50">
       <Header />
@@ -16,9 +18,14 @@ function Home() {
           </p>
         </section>
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {problemCards.map((card) => (
+          {problems.map((card) => (
             <ProblemCard key={card.id} problem={card} />
           ))}
+          {problems.length === 0 && (
+            <div className="col-span-full rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
+              아직 배포된 문제가 없습니다. 관리자 화면에서 새 문제를 만들어 주세요.
+            </div>
+          )}
         </section>
       </main>
     </div>

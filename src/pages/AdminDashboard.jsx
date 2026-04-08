@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 
 import Button from '../components/Button';
+import { useProblems } from '../context/ProblemsContext';
 
 function createId(prefix) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -20,6 +21,7 @@ function emptyForm() {
   return {
     title: '',
     imageFileName: '',
+    imageDataUrl: '',
     proposition: '',
     allowedMethods: {
       verbal: true,
@@ -30,6 +32,7 @@ function emptyForm() {
       positiveKeywords: [],
       misconceptionKeywords: [],
       counterexampleImageFileName: '',
+      counterexampleImageDataUrl: '',
       hintQuestion: '',
     },
     steps: [
@@ -46,71 +49,114 @@ function normalizeTagValue(v) {
   return v.trim().replace(/\s+/g, ' ');
 }
 
+// 이미지 리사이즈 (최대 maxSize px) 후 dataURL 반환
+function resizeImageToDataUrl(file, maxSize = 1024) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('이미지를 읽는 중 오류가 발생했습니다.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const { width, height } = img;
+        const scale = Math.min(1, maxSize / Math.max(width, height) || 1);
+        const targetW = Math.max(1, Math.round(width * scale));
+        const targetH = Math.max(1, Math.round(height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(reader.result);
+          return;
+        }
+        ctx.clearRect(0, 0, targetW, targetH);
+        ctx.drawImage(img, 0, 0, targetW, targetH);
+        try {
+          const dataUrl = canvas.toDataURL('image/png', 0.9);
+          resolve(dataUrl);
+        } catch {
+          resolve(reader.result);
+        }
+      };
+      img.onerror = () =>
+        reject(new Error('이미지 포맷을 해석할 수 없습니다.'));
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function getRecommendedTemplateByProposition(title, proposition) {
+  const source = `${title} ${proposition}`.toLowerCase();
+
+  if (source.includes('이등변삼각형') || source.includes('밑각')) {
+    return {
+      emoji: '△',
+      topic: '이등변삼각형',
+      difficulty: '기본',
+      positiveKeywords: ['밑각', '합동', '대칭'],
+      misconceptionKeywords: ['두 변만 같다고 단정', '밑변 기준 혼동'],
+      hintQuestion: '밑각이 같음을 보이려면 어떤 보조선을 그으면 좋을까요?',
+      steps: [
+        { id: createId('step'), logicKeyword: '보조선 또는 대칭축 설정', points: 3 },
+        { id: createId('step'), logicKeyword: '각의 대응 관계 설명', points: 4 },
+        { id: createId('step'), logicKeyword: '∠B = ∠C 결론', points: 3 },
+      ],
+    };
+  }
+
+  if (source.includes('평행사변형') || source.includes('대각선')) {
+    return {
+      emoji: '◇',
+      topic: '평행사변형',
+      difficulty: '중급',
+      positiveKeywords: ['대각선', '이등분', '교점'],
+      misconceptionKeywords: ['대각선 길이 항상 동일', '조건 누락'],
+      hintQuestion:
+        '대각선의 교점 O를 두고, AO와 CO, BO와 DO 관계를 어떻게 설명할 수 있을까요?',
+      steps: [
+        { id: createId('step'), logicKeyword: '교점 O 설정', points: 2 },
+        { id: createId('step'), logicKeyword: '이등분 성질 제시', points: 5 },
+        { id: createId('step'), logicKeyword: '길이 관계 결론', points: 3 },
+      ],
+    };
+  }
+
+  if (source.includes('합동') || source.includes('직각삼각형')) {
+    return {
+      emoji: '▷',
+      topic: '삼각형의 합동',
+      difficulty: '중급',
+      positiveKeywords: ['합동', '대응', '조건'],
+      misconceptionKeywords: ['조건 일부만 사용', '대응 순서 오류'],
+      hintQuestion:
+        '주어진 합동 조건으로 어떤 대응 관계를 먼저 정리하면 좋을까요?',
+      steps: [
+        { id: createId('step'), logicKeyword: '주어진 조건 나열', points: 3 },
+        { id: createId('step'), logicKeyword: '대응 관계 및 합동 성립', points: 5 },
+        { id: createId('step'), logicKeyword: '최종 결론 도출', points: 2 },
+      ],
+    };
+  }
+
+  return {
+    emoji: '📐',
+    topic: '도형의 성질',
+    difficulty: '기본',
+    positiveKeywords: ['조건 정리', '논리 전개'],
+    misconceptionKeywords: ['근거 없이 결론 도출'],
+    hintQuestion: '주어진 조건에서 가장 먼저 확인할 성질은 무엇일까요?',
+    steps: [
+      { id: createId('step'), logicKeyword: '조건 정리', points: 3 },
+      { id: createId('step'), logicKeyword: '성질 적용', points: 4 },
+      { id: createId('step'), logicKeyword: '결론 정당화', points: 3 },
+    ],
+  };
+}
+
 function AdminDashboard() {
   const navigate = useNavigate();
-
-  const [problems, setProblems] = useState(() => [
-    {
-      id: 1,
-      title: '이등변삼각형 밑각의 성질',
-      imageFileName: 'isosceles-triangle.png',
-      proposition:
-        '△ABC가 AB = AC인 이등변삼각형일 때, ∠B = ∠C임을 설명하시오.',
-      allowedMethods: { verbal: true, draw: true, photo: false },
-      rubric: {
-        positiveKeywords: ['엇각', '밑각', '대칭'],
-        misconceptionKeywords: ['두 변만 같다고 함'],
-        counterexampleImageFileName: 'counterexample_1.png',
-        hintQuestion:
-          '밑각을 비교할 때, 꼭짓점에서 어떤 선을 생각해볼 수 있을까요?',
-      },
-      steps: [
-        { id: 's1', logicKeyword: '대칭축/보조선 설정', points: 3 },
-        { id: 's2', logicKeyword: '밑각의 일치 이유 설명', points: 5 },
-        { id: 's3', logicKeyword: '결론 도출(∠B=∠C)', points: 2 },
-      ],
-    },
-    {
-      id: 2,
-      title: '평행사변형 대각선의 성질',
-      imageFileName: 'parallelogram-diagonals.png',
-      proposition:
-        '평행사변형 ABCD에서 대각선 AC와 BD가 만나는 점을 O라 할 때, AO = CO, BO = DO임을 설명하시오.',
-      allowedMethods: { verbal: true, draw: true, photo: true },
-      rubric: {
-        positiveKeywords: ['대각선', '이등분', '대응'],
-        misconceptionKeywords: ['한 변이 평행이면 됨'],
-        counterexampleImageFileName: 'counterexample_2.png',
-        hintQuestion:
-          '대각선들이 서로를 어떻게 나누는지, 만나는 점 O를 중심으로 생각해볼까요?',
-      },
-      steps: [
-        { id: 's1', logicKeyword: '대각선이 만나는 점 O 설정', points: 2 },
-        { id: 's2', logicKeyword: '서로 이등분함을 근거로 제시', points: 6 },
-        { id: 's3', logicKeyword: '거리/길이 관계 결론', points: 2 },
-      ],
-    },
-    {
-      id: 3,
-      title: '직각삼각형의 합동 조건',
-      imageFileName: 'right-triangle-congruence.png',
-      proposition:
-        '빗변의 길이와 한 예각의 크기가 같은 두 직각삼각형은 합동임을 설명하시오.',
-      allowedMethods: { verbal: true, draw: true, photo: false },
-      rubric: {
-        positiveKeywords: ['합동', '예각', '빗변'],
-        misconceptionKeywords: ['변 하나만 같음'],
-        counterexampleImageFileName: 'counterexample_3.png',
-        hintQuestion:
-          '빗변과 예각이 같다면, 나머지 요소(다른 각/변)는 어떻게 결정될까요?',
-      },
-      steps: [
-        { id: 's1', logicKeyword: '빗변과 예각 조건 제시', points: 3 },
-        { id: 's2', logicKeyword: '나머지 한 변/각의 결정', points: 6 },
-        { id: 's3', logicKeyword: '합동 결론(대응 관계)', points: 1 },
-      ],
-    },
-  ]);
+  const { problems, addProblem, updateProblem, deleteProblem } = useProblems();
 
   const [selectedProblem, setSelectedProblem] = useState(null);
   const [form, setForm] = useState(() => emptyForm());
@@ -137,6 +183,7 @@ function AdminDashboard() {
     setForm({
       title: p.title || '',
       imageFileName: p.imageFileName || '',
+      imageDataUrl: p.imageDataUrl || '',
       proposition: p.proposition || '',
       allowedMethods: p.allowedMethods || {
         verbal: true,
@@ -147,6 +194,8 @@ function AdminDashboard() {
         positiveKeywords: p.rubric?.positiveKeywords || [],
         misconceptionKeywords: p.rubric?.misconceptionKeywords || [],
         counterexampleImageFileName: p.rubric?.counterexampleImageFileName || '',
+        counterexampleImageDataUrl:
+          p.rubric?.counterexampleImageDataUrl || '',
         hintQuestion: p.rubric?.hintQuestion || '',
       },
       steps:
@@ -161,10 +210,6 @@ function AdminDashboard() {
     setPositiveTagDraft('');
     setMisconceptionTagDraft('');
   };
-
-  useEffect(() => {
-    // 처음 진입 시 첫 문제를 보여주지 않고 "새 문제 만들기" 상태로 둡니다.
-  }, []);
 
   const addTag = (type) => {
     const raw =
@@ -214,6 +259,20 @@ function AdminDashboard() {
     });
   };
 
+  const applyRecommendedDefaults = () => {
+    const rec = getRecommendedTemplateByProposition(form.title, form.proposition);
+    setForm((prev) => ({
+      ...prev,
+      rubric: {
+        ...prev.rubric,
+        positiveKeywords: rec.positiveKeywords,
+        misconceptionKeywords: rec.misconceptionKeywords,
+        hintQuestion: prev.rubric.hintQuestion || rec.hintQuestion,
+      },
+      steps: rec.steps,
+    }));
+  };
+
   const addStep = () => {
     setForm((prev) => ({
       ...prev,
@@ -239,8 +298,16 @@ function AdminDashboard() {
   };
 
   const handleSave = () => {
+    const rec = getRecommendedTemplateByProposition(form.title, form.proposition);
     const payload = {
       ...form,
+      emoji: selectedProblem?.emoji || rec.emoji,
+      topic: selectedProblem?.topic || rec.topic,
+      difficulty: selectedProblem?.difficulty || rec.difficulty,
+      description:
+        selectedProblem?.description ||
+        form.proposition?.slice(0, 80) ||
+        `${form.title || '문제'} 정당화 연습`,
       steps: form.steps.map((s, idx) => ({
         id: s.id ?? `step-${idx + 1}`,
         logicKeyword: s.logicKeyword,
@@ -249,22 +316,21 @@ function AdminDashboard() {
     };
 
     if (!selectedProblem) {
-      const nextId =
-        problems.reduce((acc, p) => Math.max(acc, p.id), 0) + 1;
-      const created = { id: nextId, ...payload };
-      setProblems((prev) => [created, ...prev]);
+      const created = { id: `prob-${Date.now()}`, ...payload };
+      addProblem(created);
       loadFormFromProblem(created);
+      window.alert('새 문제가 성공적으로 배포되었습니다.');
       return;
     }
 
-    setProblems((prev) =>
-      prev.map((p) => (p.id === selectedProblem.id ? { ...p, ...payload } : p))
-    );
+    updateProblem(selectedProblem.id, payload);
 
     setSelectedProblem((prev) => {
       if (!prev) return prev;
       return { ...prev, ...payload };
     });
+
+    window.alert('수정 내용이 성공적으로 저장되었습니다.');
   };
 
   const handleDelete = () => {
@@ -272,13 +338,11 @@ function AdminDashboard() {
     const ok = window.confirm('정말로 이 문제를 삭제할까요?');
     if (!ok) return;
 
-    setProblems((prev) => prev.filter((p) => p.id !== selectedProblem.id));
+    deleteProblem(selectedProblem.id);
     resetFormForNew();
   };
 
-  const problemsSorted = useMemo(() => {
-    return [...problems].sort((a, b) => b.id - a.id);
-  }, [problems]);
+  const problemsSorted = useMemo(() => [...problems], [problems]);
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -388,6 +452,15 @@ function AdminDashboard() {
               <h3 className="text-lg font-semibold text-slate-900">
                 섹션 A: 기본 문제 설정
               </h3>
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={applyRecommendedDefaults}
+                  className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                >
+                  명제 기반 디폴트 추천값 적용
+                </button>
+              </div>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <div className="md:col-span-1">
                   <label className="block text-sm font-medium text-slate-700">
@@ -413,13 +486,23 @@ function AdminDashboard() {
                       type="file"
                       accept="image/*"
                       className="hidden"
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
-                        setForm((prev) => ({
-                          ...prev,
-                          imageFileName: file.name,
-                        }));
+                        try {
+                          const dataUrl = await resizeImageToDataUrl(file, 1024);
+                          setForm((prev) => ({
+                            ...prev,
+                            imageFileName: file.name,
+                            imageDataUrl:
+                              typeof dataUrl === 'string' ? dataUrl : '',
+                          }));
+                        } catch (err) {
+                          window.alert(
+                            err?.message ||
+                              '도형 이미지를 처리하는 중 오류가 발생했습니다.'
+                          );
+                        }
                       }}
                     />
                     <button
@@ -434,6 +517,15 @@ function AdminDashboard() {
                       <p className="mt-2 text-xs text-slate-500">
                         선택됨: {form.imageFileName}
                       </p>
+                    )}
+                    {form.imageDataUrl && (
+                      <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <img
+                          src={form.imageDataUrl}
+                          alt="도형 이미지 미리보기"
+                          className="max-h-40 w-full object-contain"
+                        />
+                      </div>
                     )}
                   </div>
                 </div>
@@ -604,16 +696,26 @@ function AdminDashboard() {
                       type="file"
                       accept="image/*"
                       className="hidden"
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
-                        setForm((prev) => ({
-                          ...prev,
-                          rubric: {
-                            ...prev.rubric,
-                            counterexampleImageFileName: file.name,
-                          },
-                        }));
+                        try {
+                          const dataUrl = await resizeImageToDataUrl(file, 1024);
+                          setForm((prev) => ({
+                            ...prev,
+                            rubric: {
+                              ...prev.rubric,
+                              counterexampleImageFileName: file.name,
+                              counterexampleImageDataUrl:
+                                typeof dataUrl === 'string' ? dataUrl : '',
+                            },
+                          }));
+                        } catch (err) {
+                          window.alert(
+                            err?.message ||
+                              '반례 이미지를 처리하는 중 오류가 발생했습니다.'
+                          );
+                        }
                       }}
                     />
                     <button
@@ -628,6 +730,15 @@ function AdminDashboard() {
                       <p className="mt-2 text-xs text-slate-500">
                         선택됨: {form.rubric.counterexampleImageFileName}
                       </p>
+                    )}
+                    {form.rubric.counterexampleImageDataUrl && (
+                      <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        <img
+                          src={form.rubric.counterexampleImageDataUrl}
+                          alt="반례 이미지 미리보기"
+                          className="max-h-40 w-full object-contain"
+                        />
+                      </div>
                     )}
                   </div>
                 </div>

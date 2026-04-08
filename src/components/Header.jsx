@@ -1,9 +1,9 @@
 import { useNavigate } from 'react-router-dom';
-import { LogIn, UserCog } from 'lucide-react';
+import { UserCog } from 'lucide-react';
 import Button from './Button';
 
 /**
- * 홈 화면 헤더: 학생 로그인, 관리자 로그인 버튼
+ * 홈 화면 헤더: 관리자 로그인 버튼
  */
 function Header() {
   const navigate = useNavigate();
@@ -17,14 +17,6 @@ function Header() {
         </span>
       </div>
       <nav className="flex items-center gap-3">
-        <Button
-          variant="outline"
-          size="sm"
-          leftIcon={LogIn}
-          onClick={() => navigate('/workspace/prob-001')}
-        >
-          학생 로그인
-        </Button>
         <Button
           variant="primary"
           size="sm"

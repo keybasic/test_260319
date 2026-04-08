@@ -142,12 +142,38 @@ export const aiChatMessages = [
   },
 ];
 
-// 풀이법 옵션 (학생 워크스페이스)
+// 풀이법 옵션 (학생 워크스페이스) — 레거시 기본값
 export const solutionMethods = [
   { id: 'verbal', label: '말로 설명하기', emoji: '💬', enabled: true },
   { id: 'draw', label: '화면에 풀기', emoji: '✏️', enabled: true },
   { id: 'photo', label: '풀이 촬영하기', emoji: '📷', enabled: false },
 ];
+
+/**
+ * 관리자 설정을 가정한 입력 방식 (문제별). 실제로는 AdminDashboard·API와 연동 가능.
+ * @param {string} problemId
+ * @returns {{ verbal: boolean, draw: boolean, photo: boolean }}
+ */
+export function getWorkspaceInputConfig(problemId) {
+  const defaults = { verbal: true, draw: true, photo: false };
+  const byProblem = {
+    'prob-001': { verbal: true, draw: true, photo: true },
+    'prob-002': { verbal: true, draw: true, photo: false },
+    'prob-003': { verbal: true, draw: true, photo: true },
+    'prob-004': { verbal: true, draw: true, photo: false },
+    'prob-005': { verbal: true, draw: true, photo: true },
+    'prob-006': { verbal: true, draw: true, photo: false },
+  };
+  return byProblem[problemId] || defaults;
+}
+
+/** solutionMethods 형태로 변환 (StudentWorkspace 버튼용) */
+export function getSolutionMethodsFromConfig(config) {
+  return solutionMethods.map((m) => ({
+    ...m,
+    enabled: Boolean(config[m.id]),
+  }));
+}
 
 // 관리자 대시보드용 통계 (더미)
 export const adminStats = {
