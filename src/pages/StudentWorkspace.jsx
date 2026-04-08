@@ -9,14 +9,21 @@ import {
   Send,
   Loader2,
 } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import 'mathlive/static.css';
 import 'mathlive';
 
 import Button from '../components/Button';
 import { getSolutionMethodsFromConfig } from '../data/mockData';
-import { fetchAIFeedback } from '../services/openaiFeedback';
+import {
+  fetchAIFeedback,
+  fetchSocraticChatReply,
+} from '../services/openaiFeedback';
 import { API_RATE, getThrottleWaitMs } from '../lib/apiCallRateLimit';
 import { useProblems } from '../context/ProblemsContext';
 
@@ -40,6 +47,15 @@ function nowTime() {
 
 function problemContextText(problem) {
   return `제목: ${problem.title}\n명제: ${problem.proposition}`;
+}
+
+// GPT가 자주 주는 \( ... \), \[ ... \] 표기를
+// remark-math가 안정적으로 처리하는 $...$, $$...$$로 정규화
+function normalizeMathDelimiters(text) {
+  if (!text) return '';
+  return text
+    .replace(/\\\[((?:.|\n)*?)\\\]/g, (_, expr) => `$$${expr}$$`)
+    .replace(/\\\(((?:.|\n)*?)\\\)/g, (_, expr) => `$${expr}$`);
 }
 
 export default function StudentWorkspace() {
@@ -82,26 +98,32 @@ export default function StudentWorkspace() {
   const [mathLatex, setMathLatex] = useState('');
   const mathFieldRef = useRef(null);
 
-  const [chatHistory, setChatHistory] = useState(() => [
+  const [chatMessages, setChatMessages] = useState(() => [
     {
       id: 'welcome',
-      role: 'ai',
+      role: 'assistant',
       kind: 'welcome',
       text: '안녕하세요! 정당화 연습을 끝까지 도와줄게요. 😊\n풀이 방식을 고른 뒤, 말하기·필기·사진 중 편한 방법으로 설명해 보세요. 질문으로 함께 생각해 나가요.',
       timestamp: nowTime(),
     },
   ]);
+  const [chatInput, setChatInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
 
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef(null);
 
-  const canvasRef = useRef(null);
+  const [canvasPages, setCanvasPages] = useState(() => [
+    { id: `canvas-${Date.now()}` },
+  ]);
+  const canvasRefs = useRef({});
+  const drawScrollRef = useRef(null);
   const canvasIdleTimerRef = useRef(null);
   const canvasVisionSeqRef = useRef(0);
   const lastCanvasSentRef = useRef('');
   const lastCanvasApiCompletedAtRef = useRef(0);
   const isDrawingRef = useRef(false);
+  const activeDrawingCanvasIdRef = useRef(null);
   const lastPointRef = useRef(null);
 
   const [photoDataUrl, setPhotoDataUrl] = useState('');
@@ -118,6 +140,20 @@ export default function StudentWorkspace() {
     if (mathLatex.trim()) parts.push(`[수식 LaTeX]\n${mathLatex.trim()}`);
     return parts.join('\n\n');
   }, [draft, mathLatex]);
+
+  // 2구역의 최종 풀이 컨텍스트(요청사항: solutionText)
+  const solutionText = useMemo(() => {
+    if (inputMode === 'verbal') return verbalCombined.trim();
+    if (inputMode === 'draw') {
+      return '학생이 화면에 풀기(캔버스) 모드에서 필기 중입니다.';
+    }
+    if (inputMode === 'photo') {
+      return photoDataUrl
+        ? '학생이 풀이 촬영하기 모드에서 이미지 업로드를 완료했습니다.'
+        : '학생이 풀이 촬영하기 모드이며 아직 이미지를 업로드하지 않았습니다.';
+    }
+    return verbalCombined.trim();
+  }, [inputMode, verbalCombined, photoDataUrl]);
 
   const debouncedVerbal = useDebouncedValue(
     verbalCombined,
@@ -181,11 +217,11 @@ export default function StudentWorkspace() {
         if (!active || verbalSeqRef.current !== seq) return;
         lastVerbalSentRef.current = textToSend;
         lastVerbalApiCompletedAtRef.current = Date.now();
-        setChatHistory((prev) => [
+        setChatMessages((prev) => [
           ...prev,
           {
             id: `gpt-v-${Date.now()}`,
-            role: 'ai',
+            role: 'assistant',
             kind: 'gpt',
             text: reply,
             timestamp: nowTime(),
@@ -283,9 +319,17 @@ export default function StudentWorkspace() {
     if (inputMode !== 'verbal') stopRecording();
   }, [inputMode, stopRecording]);
 
-  const resizeCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
+  const resizeCanvasElement = useCallback((canvas) => {
     if (!canvas) return;
+    let snapshot = '';
+    try {
+      if (canvas.width > 0 && canvas.height > 0) {
+        snapshot = canvas.toDataURL('image/png', 0.92);
+      }
+    } catch {
+      snapshot = '';
+    }
+
     const parent = canvas.parentElement;
     if (!parent) return;
     const rect = parent.getBoundingClientRect();
@@ -302,15 +346,50 @@ export default function StudentWorkspace() {
     ctx.strokeStyle = '#1d4ed8';
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, rect.width, rect.height);
+
+    if (snapshot) {
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, rect.width, rect.height);
+      };
+      img.src = snapshot;
+    }
   }, []);
+
+  const resizeAllCanvases = useCallback(() => {
+    canvasPages.forEach((page) => {
+      const canvas = canvasRefs.current[page.id];
+      if (canvas) resizeCanvasElement(canvas);
+    });
+  }, [canvasPages, resizeCanvasElement]);
 
   useEffect(() => {
     if (inputMode !== 'draw') return;
-    resizeCanvas();
-    const onResize = () => resizeCanvas();
+    resizeAllCanvases();
+    const onResize = () => resizeAllCanvases();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [inputMode, resizeCanvas]);
+  }, [inputMode, resizeAllCanvases]);
+
+  const setCanvasRef = useCallback(
+    (canvasId, element) => {
+      if (element) {
+        // 리렌더 시 ref 콜백이 재실행되어도
+        // 동일 DOM이면 재초기화(내용 소실)하지 않음
+        if (canvasRefs.current[canvasId] === element) return;
+        canvasRefs.current[canvasId] = element;
+        resizeCanvasElement(element);
+      }
+    },
+    [resizeCanvasElement]
+  );
+
+  const collectCanvasDataUrls = useCallback(() => {
+    return canvasPages
+      .map((page) => canvasRefs.current[page.id])
+      .filter(Boolean)
+      .map((canvas) => canvas.toDataURL('image/png', 0.92));
+  }, [canvasPages]);
 
   const scheduleCanvasVision = useCallback(() => {
     if (inputMode !== 'draw') return;
@@ -318,10 +397,10 @@ export default function StudentWorkspace() {
     const seq = ++canvasVisionSeqRef.current;
     canvasIdleTimerRef.current = setTimeout(async () => {
       if (canvasVisionSeqRef.current !== seq) return;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      let dataUrl = canvas.toDataURL('image/png', 0.92);
-      if (dataUrl === lastCanvasSentRef.current) return;
+      const urls = collectCanvasDataUrls();
+      if (!urls.length) return;
+      let signature = urls.join('||');
+      if (signature === lastCanvasSentRef.current) return;
 
       const throttleWait = getThrottleWaitMs(
         lastCanvasApiCompletedAtRef.current,
@@ -332,8 +411,10 @@ export default function StudentWorkspace() {
       }
       if (canvasVisionSeqRef.current !== seq) return;
 
-      dataUrl = canvas.toDataURL('image/png', 0.92);
-      if (dataUrl === lastCanvasSentRef.current) return;
+      const latestUrls = collectCanvasDataUrls();
+      if (!latestUrls.length) return;
+      signature = latestUrls.join('||');
+      if (signature === lastCanvasSentRef.current) return;
 
       setAiLoading(true);
       try {
@@ -341,16 +422,16 @@ export default function StudentWorkspace() {
           problemContext: problemContextText(problem),
           userText:
             '캔버스 필기 이미지를 읽고, OCR에 가깝게 텍스트로 요약한 뒤 정당화 논리에 대한 비계(질문 중심) 피드백을 주세요.',
-          imagesBase64: [dataUrl],
+          imagesBase64: latestUrls,
         });
         if (canvasVisionSeqRef.current !== seq) return;
-        lastCanvasSentRef.current = dataUrl;
+        lastCanvasSentRef.current = signature;
         lastCanvasApiCompletedAtRef.current = Date.now();
-        setChatHistory((prev) => [
+        setChatMessages((prev) => [
           ...prev,
           {
             id: `gpt-d-${Date.now()}`,
-            role: 'ai',
+            role: 'assistant',
             kind: 'gpt',
             text: reply,
             timestamp: nowTime(),
@@ -365,10 +446,10 @@ export default function StudentWorkspace() {
         if (canvasVisionSeqRef.current === seq) setAiLoading(false);
       }
     }, API_RATE.canvas.idleDebounceMs);
-  }, [inputMode, problem]);
+  }, [collectCanvasDataUrls, inputMode, problem]);
 
-  const getCanvasPoint = (e) => {
-    const canvas = canvasRef.current;
+  const getCanvasPoint = (e, canvasId) => {
+    const canvas = canvasRefs.current[canvasId];
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
     const clientX = e.clientX ?? e.touches?.[0]?.clientX;
@@ -377,8 +458,8 @@ export default function StudentWorkspace() {
     return { x: clientX - rect.left, y: clientY - rect.top };
   };
 
-  const drawLine = (from, to) => {
-    const canvas = canvasRef.current;
+  const drawLine = (canvasId, from, to) => {
+    const canvas = canvasRefs.current[canvasId];
     const ctx = canvas?.getContext('2d');
     if (!ctx || !from || !to) return;
     ctx.beginPath();
@@ -387,35 +468,49 @@ export default function StudentWorkspace() {
     ctx.stroke();
   };
 
-  const handleCanvasPointerDown = (e) => {
+  const handleCanvasPointerDown = (canvasId, e) => {
     e.preventDefault();
-    const p = getCanvasPoint(e);
+    const p = getCanvasPoint(e, canvasId);
     if (!p) return;
     isDrawingRef.current = true;
+    activeDrawingCanvasIdRef.current = canvasId;
     lastPointRef.current = p;
   };
 
-  const handleCanvasPointerMove = (e) => {
+  const handleCanvasPointerMove = (canvasId, e) => {
     if (!isDrawingRef.current) return;
+    if (activeDrawingCanvasIdRef.current !== canvasId) return;
     e.preventDefault();
-    const p = getCanvasPoint(e);
+    const p = getCanvasPoint(e, canvasId);
     if (!p || !lastPointRef.current) return;
-    drawLine(lastPointRef.current, p);
+    drawLine(canvasId, lastPointRef.current, p);
     lastPointRef.current = p;
   };
 
-  const handleCanvasPointerUp = () => {
+  const handleCanvasPointerUp = (canvasId) => {
+    if (activeDrawingCanvasIdRef.current !== canvasId) return;
     if (!isDrawingRef.current) return;
     isDrawingRef.current = false;
+    activeDrawingCanvasIdRef.current = null;
     lastPointRef.current = null;
     setCanvasTick((n) => n + 1);
     scheduleCanvasVision();
   };
 
-  const clearCanvas = () => {
-    resizeCanvas();
+  const clearAllCanvases = () => {
+    resizeAllCanvases();
     lastCanvasSentRef.current = '';
     setCanvasTick((n) => n + 1);
+  };
+
+  const addCanvasPage = () => {
+    const newPage = { id: `canvas-${Date.now()}-${Math.floor(Math.random() * 1000)}` };
+    setCanvasPages((prev) => [...prev, newPage]);
+    requestAnimationFrame(() => {
+      if (drawScrollRef.current) {
+        drawScrollRef.current.scrollTop = drawScrollRef.current.scrollHeight;
+      }
+    });
   };
 
   const handlePhotoChange = async (e) => {
@@ -444,11 +539,11 @@ export default function StudentWorkspace() {
           imagesBase64: [dataUrl],
         });
         lastPhotoApiCompletedAtRef.current = Date.now();
-        setChatHistory((prev) => [
+        setChatMessages((prev) => [
           ...prev,
           {
             id: `gpt-p-${Date.now()}`,
-            role: 'ai',
+            role: 'assistant',
             kind: 'gpt',
             text: reply,
             timestamp: nowTime(),
@@ -465,16 +560,66 @@ export default function StudentWorkspace() {
     e.target.value = '';
   };
 
+  const handleSendChat = async () => {
+    const content = chatInput.trim();
+    if (!content || aiLoading) return;
+
+    const userMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      kind: 'chat-user',
+      text: content,
+      timestamp: nowTime(),
+    };
+
+    const nextMessages = [...chatMessages, userMessage];
+    setChatMessages(nextMessages);
+    setChatInput('');
+    setAiLoading(true);
+
+    try {
+      const assistantText = await fetchSocraticChatReply({
+        problemContext: problemContextText(problem),
+        solutionText,
+        chatMessages: nextMessages.map((m) => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          text: m.text,
+        })),
+        userMessage: content,
+      });
+
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          kind: 'chat-assistant',
+          text: assistantText,
+          timestamp: nowTime(),
+        },
+      ]);
+    } catch (err) {
+      window.alert(err?.message || String(err));
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const handleSubmitPdf = async () => {
     if (!pdfRootRef.current) return;
     setPdfSubmitting(true);
     try {
-      const canvas = await html2canvas(pdfRootRef.current, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
+      const imgData = await toPng(pdfRootRef.current, {
+        cacheBust: true,
       });
-      const imgData = canvas.toDataURL('image/png');
+
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = imgData;
+      });
+
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -485,31 +630,35 @@ export default function StudentWorkspace() {
       const margin = 10;
       const maxW = pageW - 2 * margin;
       const maxH = pageH - 2 * margin;
-      const pxToMm = (px) => (px * 25.4) / 96;
-      const imgWmm = pxToMm(canvas.width);
-      const imgHmm = pxToMm(canvas.height);
-      const scale = Math.min(maxW / imgWmm, maxH / imgHmm);
-      const w = imgWmm * scale;
-      const h = imgHmm * scale;
+      const imgRatio = img.width / img.height;
+      const boxRatio = maxW / maxH;
+      const w = imgRatio > boxRatio ? maxW : maxH * imgRatio;
+      const h = imgRatio > boxRatio ? maxW / imgRatio : maxH;
+
       pdf.addImage(imgData, 'PNG', margin, margin, w, h);
       pdf.save(`정당화_과제_${problem.id}.pdf`);
     } catch (err) {
+      console.error('PDF 생성 오류:', err);
       window.alert(err?.message || String(err));
     } finally {
       setPdfSubmitting(false);
     }
   };
 
-  const drawPdfDataUrl = useMemo(() => {
-    if (inputMode !== 'draw') return '';
-    const c = canvasRef.current;
-    if (!c) return '';
-    try {
-      return c.toDataURL('image/png', 0.92);
-    } catch {
-      return '';
-    }
-  }, [inputMode, canvasTick]);
+  const drawPdfDataUrls = useMemo(() => {
+    if (inputMode !== 'draw') return [];
+    return canvasPages
+      .map((page) => canvasRefs.current[page.id])
+      .filter(Boolean)
+      .map((canvas) => {
+        try {
+          return canvas.toDataURL('image/png', 0.92);
+        } catch {
+          return '';
+        }
+      })
+      .filter(Boolean);
+  }, [inputMode, canvasPages, canvasTick]);
 
   return (
     <div className="flex h-screen flex-col bg-slate-50">
@@ -673,20 +822,41 @@ export default function StudentWorkspace() {
                   <p className="text-sm font-medium text-slate-700">
                     디지털 판서 (Canvas)
                   </p>
-                  <Button variant="secondary" size="sm" onClick={clearCanvas}>
-                    지우기
+                  <Button variant="secondary" size="sm" onClick={clearAllCanvases}>
+                    전체 지우기
                   </Button>
                 </div>
-                <div className="relative flex-1 min-h-0 rounded-lg border border-slate-200 bg-white overflow-hidden touch-none">
-                  <canvas
-                    ref={canvasRef}
-                    className="absolute inset-0 h-full w-full cursor-crosshair"
-                    onPointerDown={handleCanvasPointerDown}
-                    onPointerMove={handleCanvasPointerMove}
-                    onPointerUp={handleCanvasPointerUp}
-                    onPointerLeave={handleCanvasPointerUp}
-                    onPointerCancel={handleCanvasPointerUp}
-                  />
+                <div
+                  ref={drawScrollRef}
+                  className="flex-1 min-h-0 space-y-4 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/40 p-3"
+                >
+                  {canvasPages.map((page, idx) => (
+                    <div key={page.id} className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <span className="font-semibold">풀이 공간 {idx + 1}</span>
+                        <span className="h-px flex-1 bg-slate-200" />
+                      </div>
+                      <div className="relative h-80 rounded-lg border border-slate-200 bg-white overflow-hidden touch-none">
+                        <canvas
+                          ref={(el) => setCanvasRef(page.id, el)}
+                          className="absolute inset-0 h-full w-full cursor-crosshair"
+                          onPointerDown={(e) => handleCanvasPointerDown(page.id, e)}
+                          onPointerMove={(e) => handleCanvasPointerMove(page.id, e)}
+                          onPointerUp={() => handleCanvasPointerUp(page.id)}
+                          onPointerLeave={() => handleCanvasPointerUp(page.id)}
+                          onPointerCancel={() => handleCanvasPointerUp(page.id)}
+                        />
+                      </div>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={addCanvasPage}
+                    className="w-full rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/40 px-4 py-4 text-sm font-semibold text-blue-700 hover:bg-blue-100/60"
+                  >
+                    + 풀이 공간 추가하기
+                  </button>
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
                   필기 후 {API_RATE.canvas.idleDebounceMs}ms 정도 멈추면 캡처하고,
@@ -749,16 +919,55 @@ export default function StudentWorkspace() {
                 AI가 분석 중이에요…
               </div>
             )}
-            {chatHistory.map((msg) => (
-              <div key={msg.id} className="flex justify-start">
+            {chatMessages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex ${
+                  msg.role === 'user' ? 'justify-end' : 'justify-start'
+                }`}
+              >
                 <div className="max-w-[95%] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-                  <p className="whitespace-pre-wrap">{msg.text}</p>
+                  <div className="prose prose-sm max-w-none whitespace-pre-wrap break-words">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkMath]}
+                      rehypePlugins={[rehypeKatex]}
+                    >
+                      {normalizeMathDelimiters(msg.text)}
+                    </ReactMarkdown>
+                  </div>
                   <span className="mt-2 block text-xs text-slate-400">
                     {msg.timestamp}
                   </span>
                 </div>
               </div>
             ))}
+          </div>
+
+          <div className="shrink-0 border-t border-slate-200 bg-white p-3">
+            <div className="flex items-end gap-2">
+              <textarea
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendChat();
+                  }
+                }}
+                rows={2}
+                placeholder="AI 튜터에게 질문하거나 답해보세요..."
+                className="flex-1 resize-none rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25"
+              />
+              <button
+                type="button"
+                onClick={handleSendChat}
+                disabled={!chatInput.trim() || aiLoading}
+                className="inline-flex h-10 items-center justify-center rounded-xl bg-blue-600 px-4 text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              >
+                <Send className="h-4 w-4 mr-1" />
+                전송
+              </button>
+            </div>
           </div>
         </section>
       </div>
@@ -816,12 +1025,19 @@ export default function StudentWorkspace() {
         )}
         {inputMode === 'draw' && (
           <div className="mt-2">
-            {drawPdfDataUrl ? (
-              <img
-                src={drawPdfDataUrl}
-                alt="필기"
-                className="max-h-80 border border-slate-200"
-              />
+            {drawPdfDataUrls.length > 0 ? (
+              <div className="space-y-3">
+                {drawPdfDataUrls.map((url, idx) => (
+                  <div key={`pdf-draw-${idx}`}>
+                    <p className="mb-1 text-xs text-slate-500">풀이 공간 {idx + 1}</p>
+                    <img
+                      src={url}
+                      alt={`필기 ${idx + 1}`}
+                      className="max-h-80 border border-slate-200"
+                    />
+                  </div>
+                ))}
+              </div>
             ) : (
               <p className="text-sm text-slate-500">(필기 없음)</p>
             )}
@@ -845,7 +1061,7 @@ export default function StudentWorkspace() {
           AI 피드백 기록
         </h2>
         <ul className="mt-2 list-decimal space-y-2 pl-5 text-sm">
-          {chatHistory.map((m) => (
+          {chatMessages.map((m) => (
             <li key={m.id} className="whitespace-pre-wrap">
               {m.text}
             </li>

@@ -12,6 +12,7 @@ import {
 
 import Button from '../components/Button';
 import { useProblems } from '../context/ProblemsContext';
+import { getExpectedAdminPassword, setAdminPassword } from '../lib/adminAuth';
 
 function createId(prefix) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -160,10 +161,14 @@ function AdminDashboard() {
 
   const [selectedProblem, setSelectedProblem] = useState(null);
   const [form, setForm] = useState(() => emptyForm());
+  const [activeMenu, setActiveMenu] = useState(null);
 
   // Tag 입력 전용 상태
   const [positiveTagDraft, setPositiveTagDraft] = useState('');
   const [misconceptionTagDraft, setMisconceptionTagDraft] = useState('');
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [nextPasswordInput, setNextPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
 
   // 이미지 업로드 placeholder용 입력값
   const fileInputRef = useRef(null);
@@ -342,6 +347,33 @@ function AdminDashboard() {
     resetFormForNew();
   };
 
+  const handleChangeAdminPassword = () => {
+    const expected = getExpectedAdminPassword();
+    if (currentPasswordInput.trim() !== expected) {
+      window.alert('현재 비밀번호가 올바르지 않습니다.');
+      return;
+    }
+    if (!nextPasswordInput.trim() || nextPasswordInput.trim().length < 4) {
+      window.alert('새 비밀번호는 4자 이상 입력해 주세요.');
+      return;
+    }
+    if (nextPasswordInput !== confirmPasswordInput) {
+      window.alert('새 비밀번호 확인이 일치하지 않습니다.');
+      return;
+    }
+
+    const ok = setAdminPassword(nextPasswordInput);
+    if (!ok) {
+      window.alert('비밀번호를 저장하지 못했습니다. 다시 시도해 주세요.');
+      return;
+    }
+
+    setCurrentPasswordInput('');
+    setNextPasswordInput('');
+    setConfirmPasswordInput('');
+    window.alert('관리자 비밀번호가 변경되었습니다. 다음 로그인부터 적용됩니다.');
+  };
+
   const problemsSorted = useMemo(() => [...problems], [problems]);
 
   return (
@@ -372,95 +404,122 @@ function AdminDashboard() {
             2학년 도형의 성질 정당화 연습 - 관리자 모드
           </h1>
 
-          <Button
-            variant="primary"
-            size="md"
-            className="mt-4 w-full"
-            leftIcon={Plus}
-            onClick={resetFormForNew}
-          >
-            + 새 문제 만들기
-          </Button>
+          <div className="mt-3 grid gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveMenu('problems')}
+              className={`w-full rounded-lg px-3 py-2 text-sm font-semibold ${
+                activeMenu === 'problems'
+                  ? 'bg-blue-600 text-white'
+                  : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              문제 설정
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMenu('password')}
+              className={`w-full rounded-lg px-3 py-2 text-sm font-semibold ${
+                activeMenu === 'password'
+                  ? 'bg-blue-600 text-white'
+                  : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              비밀번호 설정
+            </button>
+          </div>
+
         </div>
 
-        <div className="h-[calc(100vh-160px)] overflow-y-auto p-3">
-          <p className="px-1 text-xs font-medium text-slate-500">
-            배포된 문제 목록
-          </p>
-          <div className="mt-3 space-y-2">
-            {problemsSorted.map((p) => {
-              const isActive = selectedProblem?.id === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => loadFormFromProblem(p)}
-                  className={[
-                    'w-full rounded-xl border px-4 py-3 text-left transition-colors',
-                    isActive
-                      ? 'border-blue-300 bg-blue-50'
-                      : 'border-slate-200 bg-white hover:bg-slate-50',
-                  ].join(' ')}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="block min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
-                      {p.title}
-                    </span>
-                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
-                      {p.id}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500 line-clamp-1">
-                    {p.proposition}
-                  </div>
-                </button>
-              );
-            })}
+        {activeMenu === 'problems' && (
+          <div className="h-[calc(100vh-220px)] overflow-y-auto p-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="mb-3 ml-8 w-[calc(100%-2rem)] justify-start border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+              leftIcon={Plus}
+              onClick={resetFormForNew}
+            >
+              새 문제 만들기
+            </Button>
+            <p className="px-1 text-xs font-medium text-slate-500">
+              배포된 문제 목록
+            </p>
+            <div className="mt-3 space-y-2">
+              {problemsSorted.map((p) => {
+                const isActive = selectedProblem?.id === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => loadFormFromProblem(p)}
+                    className={[
+                      'w-full rounded-xl border px-4 py-3 text-left transition-colors',
+                      isActive
+                        ? 'border-blue-300 bg-blue-50'
+                        : 'border-slate-200 bg-white hover:bg-slate-50',
+                    ].join(' ')}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="block min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
+                        {p.title}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                        {p.id}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500 line-clamp-1">
+                      {p.proposition}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </aside>
 
       {/* Main: 75% */}
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl p-8">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold text-slate-900">
-                {selectedProblem ? '기존 문제 수정' : '새 문제 배포하기'}
-              </h2>
-              <p className="mt-1 text-sm text-slate-600">
-                문제 제목, 도형 이미지, 풀이 방식, AI 튜터 루브릭과 논리 위계를
-                설정하세요.
-              </p>
-            </div>
-            {selectedProblem && (
-              <div className="text-right">
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  className="text-sm font-semibold text-red-600 hover:text-red-700"
-                >
-                  이 문제 삭제하기
-                </button>
-              </div>
-            )}
-          </div>
+          {activeMenu === null && (
+            <section className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
+              왼쪽 메뉴에서 <strong className="text-slate-700">문제 설정</strong> 또는{' '}
+              <strong className="text-slate-700">비밀번호 설정</strong>을 선택해 주세요.
+            </section>
+          )}
 
-          <div className="mt-8 space-y-6">
+          {activeMenu === 'problems' && (
+            <>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-900">
+                    {selectedProblem ? '기존 문제 수정' : '새 문제 배포하기'}
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    문제 제목, 도형 이미지, 풀이 방식, AI 튜터 루브릭과 논리 위계를
+                    설정하세요.
+                  </p>
+                </div>
+                {selectedProblem && (
+                  <div className="text-right">
+                    <button
+                      type="button"
+                      onClick={handleDelete}
+                      className="text-sm font-semibold text-red-600 hover:text-red-700"
+                    >
+                      이 문제 삭제하기
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-8 space-y-6">
             {/* Section A */}
             <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <h3 className="text-lg font-semibold text-slate-900">
                 섹션 A: 기본 문제 설정
               </h3>
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={applyRecommendedDefaults}
-                  className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
-                >
-                  명제 기반 디폴트 추천값 적용
-                </button>
-              </div>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <div className="md:col-span-1">
                   <label className="block text-sm font-medium text-slate-700">
@@ -586,6 +645,15 @@ function AdminDashboard() {
               <h3 className="text-lg font-semibold text-slate-900">
                 섹션 B: AI 튜터 루브릭 설정
               </h3>
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={applyRecommendedDefaults}
+                  className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                >
+                  명제 기반 디폴트 추천값 적용
+                </button>
+              </div>
 
               <div className="mt-5 grid gap-5 md:grid-cols-2">
                 <div>
@@ -881,7 +949,61 @@ function AdminDashboard() {
                 </div>
               </div>
             </section>
-          </div>
+              </div>
+            </>
+          )}
+
+          {activeMenu === 'password' && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-2xl font-bold text-slate-900">비밀번호 설정</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                관리자 로그인 비밀번호를 변경할 수 있습니다.
+              </p>
+              <div className="mt-6 grid gap-3 md:grid-cols-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700">
+                    현재 비밀번호
+                  </label>
+                  <input
+                    type="password"
+                    value={currentPasswordInput}
+                    onChange={(e) => setCurrentPasswordInput(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    placeholder="현재 비밀번호"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700">
+                    새 비밀번호
+                  </label>
+                  <input
+                    type="password"
+                    value={nextPasswordInput}
+                    onChange={(e) => setNextPasswordInput(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    placeholder="새 비밀번호(4자 이상)"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700">
+                    새 비밀번호 확인
+                  </label>
+                  <input
+                    type="password"
+                    value={confirmPasswordInput}
+                    onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    placeholder="새 비밀번호 재입력"
+                  />
+                </div>
+              </div>
+              <div className="mt-6">
+                <Button variant="primary" size="md" onClick={handleChangeAdminPassword}>
+                  비밀번호 변경 저장
+                </Button>
+              </div>
+            </section>
+          )}
         </div>
       </main>
     </div>
