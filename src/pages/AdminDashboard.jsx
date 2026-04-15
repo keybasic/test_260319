@@ -157,7 +157,7 @@ function getRecommendedTemplateByProposition(title, proposition) {
 
 function AdminDashboard() {
   const navigate = useNavigate();
-  const { problems, addProblem, updateProblem, deleteProblem } = useProblems();
+  const { problems, isLoading, addProblem, updateProblem, deleteProblem } = useProblems();
 
   const [selectedProblem, setSelectedProblem] = useState(null);
   const [form, setForm] = useState(() => emptyForm());
@@ -169,6 +169,8 @@ function AdminDashboard() {
   const [currentPasswordInput, setCurrentPasswordInput] = useState('');
   const [nextPasswordInput, setNextPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // 이미지 업로드 placeholder용 입력값
   const fileInputRef = useRef(null);
@@ -302,7 +304,7 @@ function AdminDashboard() {
     }));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const rec = getRecommendedTemplateByProposition(form.title, form.proposition);
     const payload = {
       ...form,
@@ -320,31 +322,42 @@ function AdminDashboard() {
       })),
     };
 
-    if (!selectedProblem) {
-      const created = { id: `prob-${Date.now()}`, ...payload };
-      addProblem(created);
-      loadFormFromProblem(created);
-      window.alert('새 문제가 성공적으로 배포되었습니다.');
-      return;
+    setIsSaving(true);
+    try {
+      if (!selectedProblem) {
+        const created = { id: `prob-${Date.now()}`, ...payload };
+        await addProblem(created);
+        loadFormFromProblem(created);
+        window.alert('새 문제가 성공적으로 배포되었습니다.');
+        return;
+      }
+
+      await updateProblem(selectedProblem.id, payload);
+      setSelectedProblem((prev) => {
+        if (!prev) return prev;
+        return { ...prev, ...payload };
+      });
+      window.alert('수정 내용이 성공적으로 저장되었습니다.');
+    } catch (error) {
+      window.alert(error?.message || '저장 중 오류가 발생했습니다. 다시 시도해 주세요.');
+    } finally {
+      setIsSaving(false);
     }
-
-    updateProblem(selectedProblem.id, payload);
-
-    setSelectedProblem((prev) => {
-      if (!prev) return prev;
-      return { ...prev, ...payload };
-    });
-
-    window.alert('수정 내용이 성공적으로 저장되었습니다.');
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selectedProblem) return;
     const ok = window.confirm('정말로 이 문제를 삭제할까요?');
     if (!ok) return;
-
-    deleteProblem(selectedProblem.id);
-    resetFormForNew();
+    setIsDeleting(true);
+    try {
+      await deleteProblem(selectedProblem.id);
+      resetFormForNew();
+    } catch (error) {
+      window.alert(error?.message || '삭제 중 오류가 발생했습니다. 다시 시도해 주세요.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleChangeAdminPassword = () => {
@@ -446,6 +459,11 @@ function AdminDashboard() {
               배포된 문제 목록
             </p>
             <div className="mt-3 space-y-2">
+              {isLoading && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                  문제 목록을 불러오는 중입니다...
+                </div>
+              )}
               {problemsSorted.map((p) => {
                 const isActive = selectedProblem?.id === p.id;
                 return (
@@ -506,9 +524,10 @@ function AdminDashboard() {
                     <button
                       type="button"
                       onClick={handleDelete}
+                      disabled={isDeleting}
                       className="text-sm font-semibold text-red-600 hover:text-red-700"
                     >
-                      이 문제 삭제하기
+                      {isDeleting ? '삭제 중...' : '이 문제 삭제하기'}
                     </button>
                   </div>
                 )}
@@ -925,7 +944,7 @@ function AdminDashboard() {
                     {canEdit ? '수정 내용을 저장' : '새 문제를 배포'}
                   </p>
                   <p className="text-xs text-slate-600 mt-1">
-                    (더미 동작) 실제 서버 저장 없이 UI 상태만 갱신됩니다.
+                    저장/수정 내용은 Firestore의 problems 컬렉션에 반영됩니다.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
@@ -933,9 +952,10 @@ function AdminDashboard() {
                     <button
                       type="button"
                       onClick={handleDelete}
+                      disabled={isDeleting}
                       className="text-sm font-semibold text-red-600 hover:text-red-700"
                     >
-                      이 문제 삭제하기
+                      {isDeleting ? '삭제 중...' : '이 문제 삭제하기'}
                     </button>
                   )}
                   <Button
@@ -943,8 +963,13 @@ function AdminDashboard() {
                     size="lg"
                     leftIcon={Save}
                     onClick={handleSave}
+                    disabled={isSaving || isDeleting}
                   >
-                    {canEdit ? '수정 내용 저장하기' : '새 문제 배포하기'}
+                    {isSaving
+                      ? '저장 중...'
+                      : canEdit
+                        ? '수정 내용 저장하기'
+                        : '새 문제 배포하기'}
                   </Button>
                 </div>
               </div>

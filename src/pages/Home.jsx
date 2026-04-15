@@ -3,7 +3,7 @@ import ProblemCard from '../components/ProblemCard';
 import { useProblems } from '../context/ProblemsContext';
 
 function Home() {
-  const { problems } = useProblems();
+  const { problems, isLoading } = useProblems();
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -18,10 +18,15 @@ function Home() {
           </p>
         </section>
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {isLoading && (
+            <div className="col-span-full rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">
+              문제 목록을 불러오는 중입니다...
+            </div>
+          )}
           {problems.map((card) => (
             <ProblemCard key={card.id} problem={card} />
           ))}
-          {problems.length === 0 && (
+          {!isLoading && problems.length === 0 && (
             <div className="col-span-full rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">
               아직 배포된 문제가 없습니다. 관리자 화면에서 새 문제를 만들어 주세요.
             </div>
