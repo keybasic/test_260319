@@ -70,6 +70,7 @@ export default function StudentWorkspace() {
       title: '문제를 찾을 수 없습니다',
       emoji: '📘',
       proposition: '홈으로 돌아가 다른 문제를 선택해 주세요.',
+      teachingGuide: '',
       allowedMethods: { verbal: true, draw: true, photo: false },
     };
   }, [getProblem, problemId]);
@@ -211,6 +212,7 @@ export default function StudentWorkspace() {
       try {
         const reply = await fetchAIFeedback({
           problemContext: problemContextText(problem),
+          teachingGuide: problem.teachingGuide || '',
           userText: textToSend,
           imagesBase64: [],
         });
@@ -420,6 +422,7 @@ export default function StudentWorkspace() {
       try {
         const reply = await fetchAIFeedback({
           problemContext: problemContextText(problem),
+          teachingGuide: problem.teachingGuide || '',
           userText:
             '캔버스 필기 이미지를 읽고, OCR에 가깝게 텍스트로 요약한 뒤 정당화 논리에 대한 비계(질문 중심) 피드백을 주세요.',
           imagesBase64: latestUrls,
@@ -534,6 +537,7 @@ export default function StudentWorkspace() {
       try {
         const reply = await fetchAIFeedback({
           problemContext: problemContextText(problem),
+          teachingGuide: problem.teachingGuide || '',
           userText:
             '업로드된 풀이 사진을 OCR하고, 증명의 논리 위계를 간단히 정리한 뒤 종합 비계 피드백(질문 중심)을 주세요.',
           imagesBase64: [dataUrl],
@@ -580,6 +584,7 @@ export default function StudentWorkspace() {
     try {
       const assistantText = await fetchSocraticChatReply({
         problemContext: problemContextText(problem),
+        teachingGuide: problem.teachingGuide || '',
         solutionText,
         chatMessages: nextMessages.map((m) => ({
           role: m.role === 'assistant' ? 'assistant' : 'user',

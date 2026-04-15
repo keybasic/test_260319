@@ -24,6 +24,7 @@ function emptyForm() {
     imageFileName: '',
     imageDataUrl: '',
     proposition: '',
+    teachingGuide: '',
     allowedMethods: {
       verbal: true,
       draw: true,
@@ -192,6 +193,7 @@ function AdminDashboard() {
       imageFileName: p.imageFileName || '',
       imageDataUrl: p.imageDataUrl || '',
       proposition: p.proposition || '',
+      teachingGuide: p.teachingGuide || '',
       allowedMethods: p.allowedMethods || {
         verbal: true,
         draw: true,
@@ -622,6 +624,24 @@ function AdminDashboard() {
                   className="mt-1.5 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   rows={4}
                 />
+              </div>
+
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-slate-700">
+                  AI 지도 가이드 (teachingGuide)
+                </label>
+                <textarea
+                  value={form.teachingGuide}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, teachingGuide: e.target.value }))
+                  }
+                  placeholder="예: 1) 먼저 가정에서 같은 변을 찾게 한다. 2) 합동 조건 후보를 한 가지만 묻게 한다. 3) 마지막에 밑각 결론을 스스로 말하게 한다."
+                  className="mt-1.5 w-full rounded-xl border border-indigo-200 bg-indigo-50/40 px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  rows={6}
+                />
+                <p className="mt-2 text-xs text-slate-500">
+                  교사의 의도된 AI 지도 가이드를 입력하세요. 이 내용은 학생에게 직접 노출되지 않고 AI 발문 흐름 제어에만 사용됩니다.
+                </p>
               </div>
 
               <div className="mt-4">

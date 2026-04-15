@@ -14,6 +14,7 @@ function buildDefaultProblems() {
       difficulty: card.difficulty,
       topic: card.topic,
       proposition: detail.proposition,
+      teachingGuide: '',
       imageAlt: detail.imageAlt,
       imageFileName: '',
       imageDataUrl: '',
