@@ -424,7 +424,7 @@ export default function StudentWorkspace() {
           problemContext: problemContextText(problem),
           teachingGuide: problem.teachingGuide || '',
           userText:
-            '캔버스 필기 이미지를 읽고, OCR에 가깝게 텍스트로 요약한 뒤 정당화 논리에 대한 비계(질문 중심) 피드백을 주세요.',
+            '캔버스 필기 이미지를 읽고, OCR에 가깝게 텍스트로 요약한 뒤 정당화 논리에 대한 힌트(질문 중심) 피드백을 주세요.',
           imagesBase64: latestUrls,
         });
         if (canvasVisionSeqRef.current !== seq) return;
@@ -539,7 +539,7 @@ export default function StudentWorkspace() {
           problemContext: problemContextText(problem),
           teachingGuide: problem.teachingGuide || '',
           userText:
-            '업로드된 풀이 사진을 OCR하고, 증명의 논리 위계를 간단히 정리한 뒤 종합 비계 피드백(질문 중심)을 주세요.',
+            '업로드된 풀이 사진을 OCR하고, 증명의 논리 위계를 간단히 정리한 뒤 종합 힌트 피드백(질문 중심)을 주세요.',
           imagesBase64: [dataUrl],
         });
         lastPhotoApiCompletedAtRef.current = Date.now();
@@ -718,7 +718,7 @@ export default function StudentWorkspace() {
               나의 풀이
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              방식을 선택한 뒤 풀이해 보세요. GPT-4o가 비계 피드백을 제공합니다.
+              방식을 선택한 뒤 풀이해 보세요. GPT-4o가 힌트 피드백을 제공합니다.
             </p>
           </div>
 
@@ -913,7 +913,7 @@ export default function StudentWorkspace() {
               AI 가이드
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              질문 중심 비계 · LaTeX 수식 포함 응답
+              질문 중심 힌트 · LaTeX 수식 포함 응답
             </p>
           </div>
 
@@ -979,14 +979,7 @@ export default function StudentWorkspace() {
 
       {/* 과제 제출 + PDF용 숨김 렌더 */}
       <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3">
-        <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-slate-500">
-            API 키는 <code className="rounded bg-slate-100 px-1">.env</code>의{' '}
-            <code className="rounded bg-slate-100 px-1">
-              VITE_OPENAI_API_KEY
-            </code>
-            를 사용합니다. (클라이언트 노출 주의)
-          </p>
+        <div className="mx-auto flex max-w-5xl justify-end">
           <Button
             variant="primary"
             size="lg"
