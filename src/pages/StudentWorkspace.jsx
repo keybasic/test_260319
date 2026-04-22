@@ -718,8 +718,15 @@ export default function StudentWorkspace() {
               {problem.title}
             </h2>
             <p className="mt-4 rounded-lg bg-blue-50 p-4 text-slate-700 border border-blue-100">
-              <strong className="text-blue-800">문제 명제:</strong>{' '}
-              {problem.proposition}
+              <strong className="text-blue-800">문제 명제:</strong>
+              <span className="mt-2 block">
+                <ReactMarkdown
+                  remarkPlugins={[remarkMath]}
+                  rehypePlugins={[rehypeKatex]}
+                >
+                  {normalizeMathDelimiters(problem.proposition || '')}
+                </ReactMarkdown>
+              </span>
             </p>
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 aspect-video overflow-hidden flex items-center justify-center">
               {problem.imageDataUrl ? (

@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import {
   ArrowLeft,
+  GripVertical,
   Image as ImageIcon,
   Plus,
   Save,
@@ -51,6 +56,13 @@ function emptyForm() {
 
 function normalizeTagValue(v) {
   return v.trim().replace(/\s+/g, ' ');
+}
+
+function normalizeMathDelimiters(text) {
+  if (!text) return '';
+  return text
+    .replace(/\\\[((?:.|\n)*?)\\\]/g, (_, expr) => `$$${expr}$$`)
+    .replace(/\\\(((?:.|\n)*?)\\\)/g, (_, expr) => `$${expr}$`);
 }
 
 // 이미지 리사이즈 (최대 maxSize px) 후 dataURL 반환
@@ -160,7 +172,14 @@ function getRecommendedTemplateByProposition(title, proposition) {
 
 function AdminDashboard() {
   const navigate = useNavigate();
-  const { problems, isLoading, addProblem, updateProblem, deleteProblem } = useProblems();
+  const {
+    problems,
+    isLoading,
+    addProblem,
+    updateProblem,
+    deleteProblem,
+    reorderProblems,
+  } = useProblems();
 
   const [selectedProblem, setSelectedProblem] = useState(null);
   const [form, setForm] = useState(() => emptyForm());
@@ -174,6 +193,9 @@ function AdminDashboard() {
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isReordering, setIsReordering] = useState(false);
+  const [draggingProblemId, setDraggingProblemId] = useState(null);
+  const [dragOverProblemId, setDragOverProblemId] = useState(null);
   const [propositionLatex, setPropositionLatex] = useState('');
 
   // 이미지 업로드 placeholder용 입력값
@@ -182,6 +204,22 @@ function AdminDashboard() {
   const propositionMathFieldRef = useRef(null);
 
   const canEdit = useMemo(() => selectedProblem !== null, [selectedProblem]);
+
+  const insertGeometryToken = (latex) => {
+    const el = propositionMathFieldRef.current;
+    if (!el) return;
+    if (typeof el.insert === 'function') {
+      el.insert(latex);
+    } else if (typeof el.executeCommand === 'function') {
+      el.executeCommand(['insert', latex]);
+    }
+    el.focus();
+    try {
+      setPropositionLatex(el.getValue?.('latex') ?? el.value ?? '');
+    } catch {
+      setPropositionLatex('');
+    }
+  };
 
   useEffect(() => {
     const el = propositionMathFieldRef.current;
@@ -331,6 +369,9 @@ function AdminDashboard() {
     const rec = getRecommendedTemplateByProposition(form.title, form.proposition);
     const payload = {
       ...form,
+      displayOrder:
+        selectedProblem?.displayOrder ??
+        problemsSorted.length + 1,
       emoji: selectedProblem?.emoji || rec.emoji,
       topic: selectedProblem?.topic || rec.topic,
       difficulty: selectedProblem?.difficulty || rec.difficulty,
@@ -381,6 +422,38 @@ function AdminDashboard() {
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const moveProblemCard = async (fromIndex, toIndex) => {
+    if (isReordering) return;
+    if (toIndex < 0 || toIndex >= problemsSorted.length) return;
+    const next = [...problemsSorted];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+
+    setIsReordering(true);
+    try {
+      await reorderProblems(next.map((item) => item.id));
+    } catch (error) {
+      window.alert(error?.message || '문제 순서를 저장하지 못했습니다. 다시 시도해 주세요.');
+    } finally {
+      setIsReordering(false);
+    }
+  };
+
+  const handleCardDrop = async (dropProblemId) => {
+    if (!draggingProblemId || draggingProblemId === dropProblemId) {
+      setDragOverProblemId(null);
+      return;
+    }
+    const fromIndex = problemsSorted.findIndex((p) => p.id === draggingProblemId);
+    const toIndex = problemsSorted.findIndex((p) => p.id === dropProblemId);
+    if (fromIndex < 0 || toIndex < 0) {
+      setDragOverProblemId(null);
+      return;
+    }
+    await moveProblemCard(fromIndex, toIndex);
+    setDragOverProblemId(null);
   };
 
   const handleChangeAdminPassword = () => {
@@ -481,38 +554,79 @@ function AdminDashboard() {
             <p className="px-1 text-xs font-medium text-slate-500">
               배포된 문제 목록
             </p>
+            <p className="mt-1 px-1 text-[11px] text-slate-400">
+              과제 카드를 드래그앤드롭해서 순서를 조정할 수 있습니다.
+            </p>
             <div className="mt-3 space-y-2">
               {isLoading && (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
                   문제 목록을 불러오는 중입니다...
                 </div>
               )}
-              {problemsSorted.map((p) => {
+              {problemsSorted.map((p, idx) => {
                 const isActive = selectedProblem?.id === p.id;
+                const isDragging = draggingProblemId === p.id;
+                const isDragOver = dragOverProblemId === p.id;
                 return (
-                  <button
+                  <div
                     key={p.id}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
+                    draggable={!isReordering}
                     onClick={() => loadFormFromProblem(p)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        loadFormFromProblem(p);
+                      }
+                    }}
+                    onDragStart={(e) => {
+                      if (isReordering) return;
+                      e.dataTransfer.effectAllowed = 'move';
+                      e.dataTransfer.setData('text/plain', p.id);
+                      setDraggingProblemId(p.id);
+                      setDragOverProblemId(p.id);
+                    }}
+                    onDragOver={(e) => {
+                      if (!draggingProblemId || draggingProblemId === p.id) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      setDragOverProblemId(p.id);
+                    }}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      await handleCardDrop(p.id);
+                    }}
+                    onDragEnd={() => {
+                      setDraggingProblemId(null);
+                      setDragOverProblemId(null);
+                    }}
                     className={[
                       'w-full rounded-xl border px-4 py-3 text-left transition-colors',
+                      isDragging ? 'opacity-60' : '',
+                      isDragOver && !isDragging ? 'border-blue-400 ring-2 ring-blue-200' : '',
                       isActive
                         ? 'border-blue-300 bg-blue-50'
                         : 'border-slate-200 bg-white hover:bg-slate-50',
                     ].join(' ')}
                   >
                     <div className="flex items-center justify-between gap-3">
+                      <span className="inline-flex items-center gap-2 text-slate-500">
+                        <GripVertical className="h-4 w-4 shrink-0" />
+                      </span>
                       <span className="block min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
-                        {p.title}
+                        {idx + 1}. {p.title}
                       </span>
-                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
-                        {p.id}
-                      </span>
+                      {isReordering && (
+                        <span className="text-[11px] font-medium text-slate-400">
+                          저장 중...
+                        </span>
+                      )}
                     </div>
                     <div className="mt-1 text-xs text-slate-500 line-clamp-1">
                       {p.proposition}
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -645,6 +759,17 @@ function AdminDashboard() {
                   className="mt-1.5 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   rows={4}
                 />
+                <div className="mt-2 rounded-xl border border-blue-100 bg-blue-50/60 p-3">
+                  <p className="text-xs font-medium text-blue-900">명제 미리보기</p>
+                  <div className="prose prose-sm mt-1 max-w-none whitespace-pre-wrap break-words text-slate-800">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkMath]}
+                      rehypePlugins={[rehypeKatex]}
+                    >
+                      {normalizeMathDelimiters(form.proposition || '')}
+                    </ReactMarkdown>
+                  </div>
+                </div>
                 <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="text-xs font-medium text-slate-600">
                     수식 입력 (MathLive)
@@ -653,6 +778,27 @@ function AdminDashboard() {
                     ref={propositionMathFieldRef}
                     className="mt-2 block w-full min-h-[90px] rounded-lg border border-slate-300 bg-white px-2 py-2 text-base"
                   />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {[
+                      { label: '∠', latex: '\\angle ' },
+                      { label: '△', latex: '\\triangle ' },
+                      { label: '합동(≅)', latex: '\\cong ' },
+                      { label: '평행(∥)', latex: '\\parallel ' },
+                      { label: '수직(⊥)', latex: '\\perp ' },
+                      { label: '선분(AB)', latex: '\\overline{AB}' },
+                      { label: '변 길이(AB)', latex: 'AB' },
+                      { label: '같다(=)', latex: '=' },
+                    ].map((token) => (
+                      <button
+                        key={token.label}
+                        type="button"
+                        onClick={() => insertGeometryToken(token.latex)}
+                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        {token.label}
+                      </button>
+                    ))}
+                  </div>
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <p className="text-xs text-slate-500">
                       아래 버튼을 누르면 명제에 <code>\( ... \)</code> 형태로 삽입됩니다.

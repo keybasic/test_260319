@@ -4,10 +4,11 @@ import { getProblemById, problemCards, getWorkspaceInputConfig } from '../data/m
 import { db } from '../firebase';
 
 function buildDefaultProblems() {
-  return problemCards.map((card) => {
+  return problemCards.map((card, idx) => {
     const detail = getProblemById(card.id);
     return {
       id: card.id,
+      displayOrder: idx + 1,
       title: card.title,
       emoji: card.emoji,
       description: card.description,
@@ -67,10 +68,17 @@ export function ProblemsProvider({ children }) {
           return;
         }
 
-        const nextProblems = snapshot.docs.map((document) => ({
-          ...document.data(),
-          id: document.id,
-        }));
+        const nextProblems = snapshot.docs
+          .map((document, idx) => {
+            const data = document.data();
+            const parsedOrder = Number(data.displayOrder);
+            return {
+              ...data,
+              id: document.id,
+              displayOrder: Number.isFinite(parsedOrder) ? parsedOrder : idx + 1,
+            };
+          })
+          .sort((a, b) => a.displayOrder - b.displayOrder);
         setProblems(nextProblems);
         setIsLoading(false);
       },
@@ -92,7 +100,20 @@ export function ProblemsProvider({ children }) {
   const api = useMemo(() => {
     const addProblem = async (problem) => {
       const problemId = String(problem.id ?? `prob-${Date.now()}`);
-      await setDoc(doc(db, 'problems', problemId), { ...problem, id: problemId });
+      const maxOrder = problems.reduce((max, item) => {
+        const current = Number(item.displayOrder);
+        if (!Number.isFinite(current)) return max;
+        return Math.max(max, current);
+      }, 0);
+      const requestedOrder = Number(problem.displayOrder);
+      const displayOrder = Number.isFinite(requestedOrder)
+        ? requestedOrder
+        : maxOrder + 1;
+      await setDoc(doc(db, 'problems', problemId), {
+        ...problem,
+        id: problemId,
+        displayOrder,
+      });
       return problemId;
     };
     const updateProblem = async (id, patch) => {
@@ -107,6 +128,20 @@ export function ProblemsProvider({ children }) {
     };
     const deleteProblem = async (id) => deleteDoc(doc(db, 'problems', String(id)));
     const getProblem = (id) => problems.find((p) => String(p.id) === String(id)) || null;
+    const reorderProblems = async (orderedIds) => {
+      const normalizedIds = orderedIds.map((id) => String(id));
+      await Promise.all(
+        normalizedIds.map((id, idx) => {
+          const current = problems.find((p) => String(p.id) === id);
+          if (!current) return Promise.resolve();
+          return setDoc(doc(db, 'problems', id), {
+            ...current,
+            id,
+            displayOrder: idx + 1,
+          });
+        })
+      );
+    };
     return {
       problems,
       isLoading,
@@ -115,6 +150,7 @@ export function ProblemsProvider({ children }) {
       updateProblem,
       deleteProblem,
       getProblem,
+      reorderProblems,
     };
   }, [isLoading, problems]);
 
