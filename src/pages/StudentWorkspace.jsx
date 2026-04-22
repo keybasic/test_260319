@@ -49,6 +49,29 @@ function problemContextText(problem) {
   return `제목: ${problem.title}\n명제: ${problem.proposition}`;
 }
 
+const MATH_VERIFICATION_PROTOCOL = `[수학적 엄밀함 검증 프로토콜]
+
+1. 선-검증 후-답변 (Verify First):
+- 학생이 "각 A와 각 B가 같다"고 주장하면, 답변 전에 반드시 다음 두 가지를 내부 검토한다.
+- (1) 주어진 조건(가정)이나 이전 단계 결론만으로 이 사실이 증명 가능한가?
+- (2) 학생이 이 주장에 대한 수학적 근거(예: 엇각, 이등변삼각형의 성질 등)를 명시했는가?
+
+2. 근거 없는 비약 차단:
+- 수학적으로 맞더라도 근거 없이 결과만 말하면 "맞았어"라고 하지 않는다.
+- 대신 "왜 그 두 각의 크기가 같다고 생각했니?"처럼 근거를 먼저 묻는다.
+
+3. 오류 지적 방식:
+- 학생이 틀린 사실(같지 않은 각을 같다고 함)을 말하면 절대 수긍하지 말고 즉시 멈춘다.
+- "음, 다시 한번 그림을 볼까? 각 A와 각 B가 같으려면 어떤 조건이 필요할까? 지금 조건만으로도 충분할까?"처럼 스스로 모순을 발견하게 유도한다.
+
+4. 추론 단계의 원자화:
+- 한 번에 여러 단계를 건너뛰지 않는다.
+- '가정 -> 근거 -> 중간 결론'의 한 고리가 완벽하게 연결되었을 때만 다음 힌트를 제공한다.
+
+5. 교사의 가이드(teachingGuide) 절대 준수:
+- 교사가 설정한 'AI 지도 가이드'와 어긋나는 주장은 수학적으로 가능하더라도 경로 이탈을 막아야 한다.
+- "우리 이번 시간에는 [교사의 가이드 방식]을 활용해볼까?"처럼 교사의 지도 경로로 복귀시킨다.`;
+
 // GPT가 자주 주는 \( ... \), \[ ... \] 표기를
 // remark-math가 안정적으로 처리하는 $...$, $$...$$로 정규화
 function normalizeMathDelimiters(text) {
@@ -213,6 +236,7 @@ export default function StudentWorkspace() {
         const reply = await fetchAIFeedback({
           problemContext: problemContextText(problem),
           teachingGuide: problem.teachingGuide || '',
+          verificationProtocol: MATH_VERIFICATION_PROTOCOL,
           userText: textToSend,
           imagesBase64: [],
         });
@@ -423,6 +447,7 @@ export default function StudentWorkspace() {
         const reply = await fetchAIFeedback({
           problemContext: problemContextText(problem),
           teachingGuide: problem.teachingGuide || '',
+          verificationProtocol: MATH_VERIFICATION_PROTOCOL,
           userText:
             '캔버스 필기 이미지를 읽고, OCR에 가깝게 텍스트로 요약한 뒤 정당화 논리에 대한 힌트(질문 중심) 피드백을 주세요.',
           imagesBase64: latestUrls,
@@ -538,6 +563,7 @@ export default function StudentWorkspace() {
         const reply = await fetchAIFeedback({
           problemContext: problemContextText(problem),
           teachingGuide: problem.teachingGuide || '',
+          verificationProtocol: MATH_VERIFICATION_PROTOCOL,
           userText:
             '업로드된 풀이 사진을 OCR하고, 증명의 논리 위계를 간단히 정리한 뒤 종합 힌트 피드백(질문 중심)을 주세요.',
           imagesBase64: [dataUrl],
@@ -585,6 +611,7 @@ export default function StudentWorkspace() {
       const assistantText = await fetchSocraticChatReply({
         problemContext: problemContextText(problem),
         teachingGuide: problem.teachingGuide || '',
+        verificationProtocol: MATH_VERIFICATION_PROTOCOL,
         solutionText,
         chatMessages: nextMessages.map((m) => ({
           role: m.role === 'assistant' ? 'assistant' : 'user',

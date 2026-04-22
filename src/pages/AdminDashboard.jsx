@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -13,6 +13,8 @@ import {
 import Button from '../components/Button';
 import { useProblems } from '../context/ProblemsContext';
 import { getExpectedAdminPassword, setAdminPassword } from '../lib/adminAuth';
+import 'mathlive/static.css';
+import 'mathlive';
 
 function createId(prefix) {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -172,18 +174,36 @@ function AdminDashboard() {
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [propositionLatex, setPropositionLatex] = useState('');
 
   // 이미지 업로드 placeholder용 입력값
   const fileInputRef = useRef(null);
   const counterexampleInputRef = useRef(null);
+  const propositionMathFieldRef = useRef(null);
 
   const canEdit = useMemo(() => selectedProblem !== null, [selectedProblem]);
+
+  useEffect(() => {
+    const el = propositionMathFieldRef.current;
+    if (!el) return;
+    const handler = () => {
+      try {
+        setPropositionLatex(el.getValue?.('latex') ?? el.value ?? '');
+      } catch {
+        setPropositionLatex('');
+      }
+    };
+    el.addEventListener('input', handler);
+    handler();
+    return () => el.removeEventListener('input', handler);
+  }, []);
 
   const resetFormForNew = () => {
     setSelectedProblem(null);
     setForm(emptyForm());
     setPositiveTagDraft('');
     setMisconceptionTagDraft('');
+    setPropositionLatex('');
   };
 
   const loadFormFromProblem = (p) => {
@@ -218,6 +238,7 @@ function AdminDashboard() {
     });
     setPositiveTagDraft('');
     setMisconceptionTagDraft('');
+    setPropositionLatex('');
   };
 
   const addTag = (type) => {
@@ -624,6 +645,36 @@ function AdminDashboard() {
                   className="mt-1.5 w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   rows={4}
                 />
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-medium text-slate-600">
+                    수식 입력 (MathLive)
+                  </p>
+                  <math-field
+                    ref={propositionMathFieldRef}
+                    className="mt-2 block w-full min-h-[90px] rounded-lg border border-slate-300 bg-white px-2 py-2 text-base"
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="text-xs text-slate-500">
+                      아래 버튼을 누르면 명제에 <code>\( ... \)</code> 형태로 삽입됩니다.
+                    </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const latex = propositionLatex.trim();
+                        if (!latex) return;
+                        setForm((prev) => ({
+                          ...prev,
+                          proposition: prev.proposition
+                            ? `${prev.proposition}\n\\(${latex}\\)`
+                            : `\\(${latex}\\)`,
+                        }));
+                      }}
+                    >
+                      명제에 수식 삽입
+                    </Button>
+                  </div>
+                </div>
               </div>
 
               <div className="mt-4">
