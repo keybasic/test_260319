@@ -4,11 +4,11 @@ import { getProblemById, problemCards, getWorkspaceInputConfig } from '../data/m
 import { db } from '../firebase';
 
 function buildDefaultProblems() {
-  return problemCards.map((card, idx) => {
+  return problemCards.map((card, index) => {
     const detail = getProblemById(card.id);
     return {
       id: card.id,
-      displayOrder: idx + 1,
+      order: index,
       title: card.title,
       emoji: card.emoji,
       description: card.description,
@@ -68,18 +68,40 @@ export function ProblemsProvider({ children }) {
           return;
         }
 
-        const nextProblems = snapshot.docs
-          .map((document, idx) => {
-            const data = document.data();
-            const parsedOrder = Number(data.displayOrder);
-            return {
-              ...data,
-              id: document.id,
-              displayOrder: Number.isFinite(parsedOrder) ? parsedOrder : idx + 1,
-            };
-          })
-          .sort((a, b) => a.displayOrder - b.displayOrder);
-        setProblems(nextProblems);
+        const nextProblems = snapshot.docs.map((document) => ({
+          ...document.data(),
+          id: document.id,
+        }));
+        const hasMissingOrder = nextProblems.some(
+          (problem) => typeof problem.order !== 'number'
+        );
+        if (hasMissingOrder) {
+          const patchedProblems = nextProblems.map((problem, index) => ({
+            ...problem,
+            order:
+              typeof problem.order === 'number' ? problem.order : index,
+          }));
+          try {
+            await Promise.all(
+              patchedProblems.map((problem) =>
+                setDoc(doc(problemsRef, String(problem.id)), problem)
+              )
+            );
+            return;
+          } catch (error) {
+            console.error('문제 순서 필드 초기화 중 오류가 발생했습니다.', error);
+            setProblems(
+              patchedProblems.sort(
+                (a, b) => (a.order ?? 0) - (b.order ?? 0)
+              )
+            );
+            setIsLoading(false);
+            return;
+          }
+        }
+        setProblems(
+          [...nextProblems].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        );
         setIsLoading(false);
       },
       (error) => {
@@ -100,19 +122,16 @@ export function ProblemsProvider({ children }) {
   const api = useMemo(() => {
     const addProblem = async (problem) => {
       const problemId = String(problem.id ?? `prob-${Date.now()}`);
-      const maxOrder = problems.reduce((max, item) => {
-        const current = Number(item.displayOrder);
-        if (!Number.isFinite(current)) return max;
-        return Math.max(max, current);
-      }, 0);
-      const requestedOrder = Number(problem.displayOrder);
-      const displayOrder = Number.isFinite(requestedOrder)
-        ? requestedOrder
-        : maxOrder + 1;
+      const maxOrder = problems.reduce(
+        (acc, item) =>
+          typeof item.order === 'number' ? Math.max(acc, item.order) : acc,
+        -1
+      );
       await setDoc(doc(db, 'problems', problemId), {
         ...problem,
         id: problemId,
-        displayOrder,
+        order:
+          typeof problem.order === 'number' ? problem.order : maxOrder + 1,
       });
       return problemId;
     };
@@ -127,21 +146,25 @@ export function ProblemsProvider({ children }) {
       });
     };
     const deleteProblem = async (id) => deleteDoc(doc(db, 'problems', String(id)));
-    const getProblem = (id) => problems.find((p) => String(p.id) === String(id)) || null;
-    const reorderProblems = async (orderedIds) => {
-      const normalizedIds = orderedIds.map((id) => String(id));
+    const reorderProblems = async (nextOrderedIds) => {
+      const orderedIds = nextOrderedIds.map((id) => String(id));
+      const currentMap = new Map(
+        problems.map((problem) => [String(problem.id), problem])
+      );
+      const nextProblems = orderedIds
+        .map((id) => currentMap.get(id))
+        .filter(Boolean)
+        .map((problem, index) => ({
+          ...problem,
+          order: index,
+        }));
       await Promise.all(
-        normalizedIds.map((id, idx) => {
-          const current = problems.find((p) => String(p.id) === id);
-          if (!current) return Promise.resolve();
-          return setDoc(doc(db, 'problems', id), {
-            ...current,
-            id,
-            displayOrder: idx + 1,
-          });
-        })
+        nextProblems.map((problem) =>
+          setDoc(doc(db, 'problems', String(problem.id)), problem)
+        )
       );
     };
+    const getProblem = (id) => problems.find((p) => String(p.id) === String(id)) || null;
     return {
       problems,
       isLoading,
@@ -149,8 +172,8 @@ export function ProblemsProvider({ children }) {
       addProblem,
       updateProblem,
       deleteProblem,
-      getProblem,
       reorderProblems,
+      getProblem,
     };
   }, [isLoading, problems]);
 

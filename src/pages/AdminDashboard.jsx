@@ -369,9 +369,6 @@ function AdminDashboard() {
     const rec = getRecommendedTemplateByProposition(form.title, form.proposition);
     const payload = {
       ...form,
-      displayOrder:
-        selectedProblem?.displayOrder ??
-        problemsSorted.length + 1,
       emoji: selectedProblem?.emoji || rec.emoji,
       topic: selectedProblem?.topic || rec.topic,
       difficulty: selectedProblem?.difficulty || rec.difficulty,
@@ -427,15 +424,16 @@ function AdminDashboard() {
   const moveProblemCard = async (fromIndex, toIndex) => {
     if (isReordering) return;
     if (toIndex < 0 || toIndex >= problemsSorted.length) return;
-    const next = [...problemsSorted];
-    const [moved] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, moved);
-
+    const reordered = [...problemsSorted];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
     setIsReordering(true);
     try {
-      await reorderProblems(next.map((item) => item.id));
+      await reorderProblems(reordered.map((p) => p.id));
     } catch (error) {
-      window.alert(error?.message || '문제 순서를 저장하지 못했습니다. 다시 시도해 주세요.');
+      window.alert(
+        error?.message || '문제 순서를 저장하는 중 오류가 발생했습니다.'
+      );
     } finally {
       setIsReordering(false);
     }
@@ -555,7 +553,7 @@ function AdminDashboard() {
               배포된 문제 목록
             </p>
             <p className="mt-1 px-1 text-[11px] text-slate-400">
-              과제 카드를 드래그앤드롭해서 순서를 조정할 수 있습니다.
+              카드를 끌어 놓아 순서를 조정할 수 있습니다.
             </p>
             <div className="mt-3 space-y-2">
               {isLoading && (
@@ -563,7 +561,7 @@ function AdminDashboard() {
                   문제 목록을 불러오는 중입니다...
                 </div>
               )}
-              {problemsSorted.map((p, idx) => {
+              {problemsSorted.map((p) => {
                 const isActive = selectedProblem?.id === p.id;
                 const isDragging = draggingProblemId === p.id;
                 const isDragOver = dragOverProblemId === p.id;
@@ -611,11 +609,11 @@ function AdminDashboard() {
                     ].join(' ')}
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <span className="inline-flex items-center gap-2 text-slate-500">
+                      <span className="inline-flex items-center gap-2 text-slate-400">
                         <GripVertical className="h-4 w-4 shrink-0" />
                       </span>
                       <span className="block min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
-                        {idx + 1}. {p.title}
+                        {p.title}
                       </span>
                       {isReordering && (
                         <span className="text-[11px] font-medium text-slate-400">
