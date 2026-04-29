@@ -1,0 +1,12 @@
+# Netlify: Vite 빌드 산출물 + SPA 클라이언트 라우팅
+# (점수 확인 /workspace/:id/score 등 깊은 경로에서 404 방지)
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# 모든 경로를 index.html로 리라이트(200) — React Router가 처리
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

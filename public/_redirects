@@ -1,2 +1,2 @@
-# SPA: 모든 경로를 index.html로 전달해 클라이언트 라우팅(Router)이 처리하게 함
+# Netlify SPA fallback (ASCII — 빌드 후 dist 루트에 복사됨)
 /*    /index.html   200
