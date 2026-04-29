@@ -8,6 +8,7 @@ import {
   SquareStop,
   Send,
   Loader2,
+  ClipboardList,
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -26,6 +27,11 @@ import {
 } from '../services/openaiFeedback';
 import { API_RATE, getThrottleWaitMs } from '../lib/apiCallRateLimit';
 import { useProblems } from '../context/ProblemsContext';
+import { saveScoreSnapshot } from '../lib/stepScore';
+import {
+  buildStudentWorkDescriptor,
+  canvasHasNonWhiteDrawing,
+} from '../lib/studentWorkContext';
 
 function useDebouncedValue(value, delayMs) {
   const [debounced, setDebounced] = useState(value);
@@ -98,6 +104,11 @@ export default function StudentWorkspace() {
     };
   }, [getProblem, problemId]);
 
+  const hasGradingSteps = useMemo(
+    () => Array.isArray(problem.steps) && problem.steps.length > 0,
+    [problem.steps]
+  );
+
   const inputConfig = useMemo(
     () => problem.allowedMethods || { verbal: true, draw: true, photo: false },
     [problem]
@@ -164,20 +175,6 @@ export default function StudentWorkspace() {
     if (mathLatex.trim()) parts.push(`[수식 LaTeX]\n${mathLatex.trim()}`);
     return parts.join('\n\n');
   }, [draft, mathLatex]);
-
-  // 2구역의 최종 풀이 컨텍스트(요청사항: solutionText)
-  const solutionText = useMemo(() => {
-    if (inputMode === 'verbal') return verbalCombined.trim();
-    if (inputMode === 'draw') {
-      return '학생이 화면에 풀기(캔버스) 모드에서 필기 중입니다.';
-    }
-    if (inputMode === 'photo') {
-      return photoDataUrl
-        ? '학생이 풀이 촬영하기 모드에서 이미지 업로드를 완료했습니다.'
-        : '학생이 풀이 촬영하기 모드이며 아직 이미지를 업로드하지 않았습니다.';
-    }
-    return verbalCombined.trim();
-  }, [inputMode, verbalCombined, photoDataUrl]);
 
   const debouncedVerbal = useDebouncedValue(
     verbalCombined,
@@ -345,15 +342,17 @@ export default function StudentWorkspace() {
     if (inputMode !== 'verbal') stopRecording();
   }, [inputMode, stopRecording]);
 
-  const resizeCanvasElement = useCallback((canvas) => {
+  const resizeCanvasElement = useCallback((canvas, preserveDrawing = true) => {
     if (!canvas) return;
     let snapshot = '';
-    try {
-      if (canvas.width > 0 && canvas.height > 0) {
-        snapshot = canvas.toDataURL('image/png', 0.92);
+    if (preserveDrawing) {
+      try {
+        if (canvas.width > 0 && canvas.height > 0) {
+          snapshot = canvas.toDataURL('image/png', 0.92);
+        }
+      } catch {
+        snapshot = '';
       }
-    } catch {
-      snapshot = '';
     }
 
     const parent = canvas.parentElement;
@@ -525,11 +524,14 @@ export default function StudentWorkspace() {
     scheduleCanvasVision();
   };
 
-  const clearAllCanvases = () => {
-    resizeAllCanvases();
+  const clearAllCanvases = useCallback(() => {
+    canvasPages.forEach((page) => {
+      const canvas = canvasRefs.current[page.id];
+      if (canvas) resizeCanvasElement(canvas, false);
+    });
     lastCanvasSentRef.current = '';
     setCanvasTick((n) => n + 1);
-  };
+  }, [canvasPages, resizeCanvasElement]);
 
   const addCanvasPage = () => {
     const newPage = { id: `canvas-${Date.now()}-${Math.floor(Math.random() * 1000)}` };
@@ -607,13 +609,40 @@ export default function StudentWorkspace() {
     setChatInput('');
     setAiLoading(true);
 
+    let canvasHasInk = false;
+    const attachmentImagesBase64 = [];
+    if (inputMode === 'draw') {
+      for (const page of canvasPages) {
+        const c = canvasRefs.current[page.id];
+        if (!canvasHasNonWhiteDrawing(c)) continue;
+        canvasHasInk = true;
+        try {
+          attachmentImagesBase64.push(c.toDataURL('image/png', 0.92));
+        } catch {
+          /* noop */
+        }
+      }
+    }
+
+    const studentWorkContext = buildStudentWorkDescriptor({
+      inputMode,
+      draft,
+      mathLatex,
+      chatMessages: nextMessages,
+      photoDataUrl,
+      canvasHasInk,
+      canvasPageCount: canvasPages.length,
+    });
+
     try {
       const assistantText = await fetchSocraticChatReply({
         problemContext: problemContextText(problem),
         teachingGuide: problem.teachingGuide || '',
         verificationProtocol: MATH_VERIFICATION_PROTOCOL,
-        solutionText,
-        chatMessages: nextMessages.map((m) => ({
+        studentWorkContext,
+        attachmentImagesBase64:
+          inputMode === 'draw' ? attachmentImagesBase64 : [],
+        chatMessages: chatMessages.map((m) => ({
           role: m.role === 'assistant' ? 'assistant' : 'user',
           text: m.text,
         })),
@@ -635,6 +664,38 @@ export default function StudentWorkspace() {
     } finally {
       setAiLoading(false);
     }
+  };
+
+  const handleOpenScorePreview = () => {
+    let base = import.meta.env.BASE_URL || '/';
+    if (!base.endsWith('/')) base += '/';
+    saveScoreSnapshot(problem.id, {
+      inputMode,
+      draft,
+      mathLatex,
+      chatMessages: chatMessages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        text: m.text,
+        kind: m.kind,
+      })),
+    });
+    const url = `${window.location.origin}${base}workspace/${problem.id}/score?popup=1`;
+    const w = 440;
+    const h = Math.min(780, window.screen.availHeight - 48);
+    const sx = window.screenX ?? window.screenLeft ?? 0;
+    const sy = window.screenY ?? window.screenTop ?? 0;
+    const left = Math.max(8, sx + (window.outerWidth || 0) - w - 16);
+    const top = Math.max(32, sy + 24);
+    const features = [
+      `width=${w}`,
+      `height=${h}`,
+      `left=${left}`,
+      `top=${top}`,
+      'scrollbars=yes',
+      'resizable=yes',
+    ].join(',');
+    window.open(url, `score-${problem.id}-${Date.now()}`, features);
   };
 
   const handleSubmitPdf = async () => {
@@ -1013,7 +1074,26 @@ export default function StudentWorkspace() {
 
       {/* 과제 제출 + PDF용 숨김 렌더 */}
       <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3">
-        <div className="mx-auto flex max-w-5xl justify-end">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-end gap-2">
+          <Button
+            variant="primary"
+            size="lg"
+            leftIcon={ClipboardList}
+            disabled={!hasGradingSteps}
+            title={
+              hasGradingSteps
+                ? undefined
+                : '관리자가 단계별 배점(Step)을 설정한 뒤 사용할 수 있습니다.'
+            }
+            onClick={handleOpenScorePreview}
+            className={
+              !hasGradingSteps
+                ? 'disabled:!opacity-100 disabled:!bg-slate-300 disabled:!text-slate-600 disabled:hover:!bg-slate-300'
+                : ''
+            }
+          >
+            점수 확인
+          </Button>
           <Button
             variant="primary"
             size="lg"
