@@ -1,0 +1,2 @@
+# SPA: 모든 경로를 index.html로 전달해 클라이언트 라우팅(Router)이 처리하게 함
+/*    /index.html   200
