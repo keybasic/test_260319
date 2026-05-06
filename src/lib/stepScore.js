@@ -22,6 +22,19 @@ export function getScoreSnapshotStorageKey(problemId) {
 }
 
 /**
+ * 관리자 섹션 C에서 실제로 채점 가능한 Step이 설정됐는지 확인한다.
+ * (키워드 비어있지 않고, 배점이 0보다 커야 유효)
+ * @param {GradingStep[] | undefined | null} steps
+ */
+export function hasConfiguredGradingSteps(steps) {
+  return (steps || []).some((step) => {
+    const logicKeyword = String(step?.logicKeyword ?? '').trim();
+    const points = Number(step?.points);
+    return Boolean(logicKeyword) && Number.isFinite(points) && points > 0;
+  });
+}
+
+/**
  * 학생이 작성한 텍스트를 출처별로 모은다. (키워드 매칭 위치 표시용)
  * 디지털 판서 등은 AI 가이드 자동 해석(kind:gpt) 텍스트를 포함한다.
  */

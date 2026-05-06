@@ -6,6 +6,7 @@ import { useProblems } from '../context/ProblemsContext';
 import {
   buildStudentTextSources,
   computeStepScoreBreakdown,
+  hasConfiguredGradingSteps,
   loadScoreSnapshot,
   mergeRubricApiToBreakdown,
 } from '../lib/stepScore';
@@ -97,7 +98,7 @@ export default function StudentScorePreview() {
   const awaitingScore =
     !!snapshot &&
     !!problem &&
-    (problem.steps || []).length > 0 &&
+    hasConfiguredGradingSteps(problem.steps) &&
     breakdown === null;
 
   if (isLoading || awaitingScore) {
@@ -151,7 +152,7 @@ export default function StudentScorePreview() {
     );
   }
 
-  const stepsConfigured = (problem.steps || []).length > 0;
+  const stepsConfigured = hasConfiguredGradingSteps(problem.steps);
 
   const mainClass = isPopupLayout
     ? 'min-h-0 bg-slate-50 pb-6'
@@ -172,8 +173,7 @@ export default function StudentScorePreview() {
               단계별 점수 확인
             </h1>
             <p className="mt-1 text-xs text-slate-600 sm:text-sm">
-              관리자 루브릭에 따라 증명 논리를 분석해 배점합니다. 키워드 일치가
-              아니라 의미·연계를 봅니다.
+              선생님이 제시한 부분점수 배점에 따라 증명 논리를 분석해 채점합니다.
             </p>
             {scoreNote ? (
               <p className="mt-2 rounded-lg bg-slate-100 px-2 py-1.5 text-xs text-slate-700">

@@ -27,7 +27,7 @@ import {
 } from '../services/openaiFeedback';
 import { API_RATE, getThrottleWaitMs } from '../lib/apiCallRateLimit';
 import { useProblems } from '../context/ProblemsContext';
-import { saveScoreSnapshot } from '../lib/stepScore';
+import { hasConfiguredGradingSteps, saveScoreSnapshot } from '../lib/stepScore';
 import {
   buildStudentWorkDescriptor,
   canvasHasNonWhiteDrawing,
@@ -105,7 +105,7 @@ export default function StudentWorkspace() {
   }, [getProblem, problemId]);
 
   const hasGradingSteps = useMemo(
-    () => Array.isArray(problem.steps) && problem.steps.length > 0,
+    () => hasConfiguredGradingSteps(problem.steps),
     [problem.steps]
   );
 
@@ -163,6 +163,11 @@ export default function StudentWorkspace() {
 
   const [photoDataUrl, setPhotoDataUrl] = useState('');
   const photoInputRef = useRef(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const cameraVideoRef = useRef(null);
+  const cameraCanvasRef = useRef(null);
+  const cameraStreamRef = useRef(null);
 
   const pdfRootRef = useRef(null);
   const [pdfSubmitting, setPdfSubmitting] = useState(false);
@@ -550,6 +555,14 @@ export default function StudentWorkspace() {
     reader.onload = async () => {
       const dataUrl = reader.result;
       if (typeof dataUrl !== 'string') return;
+      await processPhotoDataUrl(dataUrl);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const processPhotoDataUrl = useCallback(
+    async (dataUrl) => {
       setPhotoDataUrl(dataUrl);
 
       const throttleWait = getThrottleWaitMs(
@@ -587,10 +600,76 @@ export default function StudentWorkspace() {
         lastPhotoApiCompletedAtRef.current = Date.now();
         setAiLoading(false);
       }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
+    },
+    [problem]
+  );
+
+  const stopCameraStream = useCallback(() => {
+    const stream = cameraStreamRef.current;
+    if (!stream) return;
+    stream.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+  }, []);
+
+  const handleOpenCamera = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError('이 브라우저에서는 카메라 촬영을 지원하지 않습니다.');
+      setCameraOpen(false);
+      return;
+    }
+    setCameraError('');
+    try {
+      stopCameraStream();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      });
+      cameraStreamRef.current = stream;
+      setCameraOpen(true);
+      requestAnimationFrame(() => {
+        const video = cameraVideoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        video.play().catch(() => {});
+      });
+    } catch (err) {
+      setCameraOpen(false);
+      setCameraError(
+        err?.message || '카메라를 열 수 없습니다. 권한을 확인해 주세요.'
+      );
+    }
+  }, [stopCameraStream]);
+
+  const handleCloseCamera = useCallback(() => {
+    setCameraOpen(false);
+    stopCameraStream();
+  }, [stopCameraStream]);
+
+  const handleCaptureFromCamera = useCallback(async () => {
+    const video = cameraVideoRef.current;
+    const canvas = cameraCanvasRef.current;
+    if (!video || !canvas) return;
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, width, height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+    handleCloseCamera();
+    await processPhotoDataUrl(dataUrl);
+  }, [handleCloseCamera, processPhotoDataUrl]);
+
+  useEffect(() => {
+    if (inputMode === 'photo') return undefined;
+    if (!cameraOpen) return undefined;
+    setCameraOpen(false);
+    stopCameraStream();
+    return undefined;
+  }, [cameraOpen, inputMode, stopCameraStream]);
+
+  useEffect(() => () => stopCameraStream(), [stopCameraStream]);
 
   const handleSendChat = async () => {
     const content = chatInput.trim();
@@ -755,7 +834,7 @@ export default function StudentWorkspace() {
 
   return (
     <div className="flex h-screen flex-col bg-slate-50">
-      <header className="flex shrink-0 items-center gap-4 border-b border-slate-200 bg-white px-4 py-3">
+      <header className="flex shrink-0 items-center border-b border-slate-200 bg-white px-4 py-3">
         <button
           type="button"
           onClick={() => navigate('/')}
@@ -765,9 +844,6 @@ export default function StudentWorkspace() {
           <ArrowLeft className="h-5 w-5" />
           <span className="text-sm font-medium">목록으로</span>
         </button>
-        <h1 className="text-lg font-semibold text-slate-800 truncate">
-          {problem.title}
-        </h1>
       </header>
 
       <div className="grid flex-1 min-h-0 grid-cols-3">
@@ -843,9 +919,7 @@ export default function StudentWorkspace() {
                     ].join(' ')}
                   >
                     <Icon className="h-4 w-4 shrink-0" />
-                    <span>
-                      {method.emoji} {method.label}
-                    </span>
+                    <span>{method.label}</span>
                   </button>
                 );
               })}
@@ -870,7 +944,7 @@ export default function StudentWorkspace() {
                   >
                     {isRecording
                       ? '녹음 중지 (말하는 중...)'
-                      : '말로 설명하기'}
+                      : '녹음 시작'}
                     {isRecording && (
                       <span
                         aria-hidden
@@ -907,11 +981,6 @@ export default function StudentWorkspace() {
                     placeholder="말로 설명한 내용과 추가 설명을 적어 보세요..."
                     className="flex-1 min-h-[220px] resize-none rounded-lg border border-slate-300 bg-slate-50/70 px-3 py-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25"
                   />
-                  <p className="mt-2 text-xs text-slate-500">
-                    입력이 잠시 안정된 뒤(디바운스 {API_RATE.verbal.debounceMs}
-                    ms) 전송하며, 연속 호출은 최소 {API_RATE.verbal.minIntervalMs}
-                    ms 간격(스로틀)으로 제한됩니다.
-                  </p>
                 </div>
               </div>
             )}
@@ -958,11 +1027,6 @@ export default function StudentWorkspace() {
                     + 풀이 공간 추가하기
                   </button>
                 </div>
-                <p className="mt-2 text-xs text-slate-500">
-                  필기 후 {API_RATE.canvas.idleDebounceMs}ms 정도 멈추면 캡처하고,
-                  API 호출은 최소 {API_RATE.canvas.minIntervalMs}ms 간격으로
-                  제한됩니다.
-                </p>
               </div>
             )}
 
@@ -975,14 +1039,49 @@ export default function StudentWorkspace() {
                   className="hidden"
                   onChange={handlePhotoChange}
                 />
-                <Button
-                  variant="primary"
-                  size="md"
-                  leftIcon={Camera}
-                  onClick={() => photoInputRef.current?.click()}
-                >
-                  풀이 사진 업로드
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="primary"
+                    size="md"
+                    leftIcon={Camera}
+                    onClick={handleOpenCamera}
+                  >
+                    사진 찍기
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    leftIcon={Camera}
+                    onClick={() => photoInputRef.current?.click()}
+                  >
+                    기기 이미지 업로드
+                  </Button>
+                </div>
+                {cameraError ? (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    {cameraError}
+                  </p>
+                ) : null}
+                {cameraOpen ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                    <video
+                      ref={cameraVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="h-64 w-full rounded-md bg-black object-contain"
+                    />
+                    <canvas ref={cameraCanvasRef} className="hidden" />
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button variant="primary" size="sm" onClick={handleCaptureFromCamera}>
+                        촬영
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={handleCloseCamera}>
+                        닫기
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
                 {photoDataUrl && (
                   <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
                     <img
@@ -993,7 +1092,7 @@ export default function StudentWorkspace() {
                   </div>
                 )}
                 <p className="text-xs text-slate-500">
-                  업로드 직시 OCR·논리 분석 피드백이 오른쪽에 표시됩니다.
+                  업로드 즉시 OCR·논리 분석 피드백이 오른쪽에 표시됩니다.
                 </p>
               </div>
             )}
