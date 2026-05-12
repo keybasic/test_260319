@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   PenTool,
+  Eraser,
   Camera,
   Mic,
   SquareStop,
@@ -65,6 +66,8 @@ const MATH_VERIFICATION_PROTOCOL = `[수학적 엄밀함 검증 프로토콜]
 2. 근거 없는 비약 차단:
 - 수학적으로 맞더라도 근거 없이 결과만 말하면 "맞았어"라고 하지 않는다.
 - 대신 "왜 그 두 각의 크기가 같다고 생각했니?"처럼 근거를 먼저 묻는다.
+- 결론은 근거를 통해 도출되어야 하고 마지막에 나와야 한다.
+- 학생이 제시하지 않은 근거는 튜터가 추론해서 제시하지 않는다.   
 
 3. 오류 지적 방식:
 - 학생이 틀린 사실(같지 않은 각을 같다고 함)을 말하면 절대 수긍하지 말고 즉시 멈춘다.
@@ -172,6 +175,7 @@ export default function StudentWorkspace() {
   const pdfRootRef = useRef(null);
   const [pdfSubmitting, setPdfSubmitting] = useState(false);
   const [canvasTick, setCanvasTick] = useState(0);
+  const [canvasTool, setCanvasTool] = useState('pen');
   const lastPhotoApiCompletedAtRef = useRef(0);
 
   const verbalCombined = useMemo(() => {
@@ -494,10 +498,21 @@ export default function StudentWorkspace() {
     const canvas = canvasRefs.current[canvasId];
     const ctx = canvas?.getContext('2d');
     if (!ctx || !from || !to) return;
+    const isEraser = canvasTool === 'eraser';
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    if (isEraser) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 18;
+    } else {
+      ctx.strokeStyle = '#1d4ed8';
+      ctx.lineWidth = 2.5;
+    }
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
+    ctx.restore();
   };
 
   const handleCanvasPointerDown = (canvasId, e) => {
@@ -987,13 +1002,47 @@ export default function StudentWorkspace() {
 
             {inputMode === 'draw' && (
               <div className="flex h-[min(520px,calc(100vh-220px))] min-h-[320px] flex-col rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-medium text-slate-700">
                     디지털 판서 (Canvas)
                   </p>
-                  <Button variant="secondary" size="sm" onClick={clearAllCanvases}>
-                    전체 지우기
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div
+                      className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5"
+                      role="group"
+                      aria-label="판서 도구"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setCanvasTool('pen')}
+                        aria-pressed={canvasTool === 'pen'}
+                        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                          canvasTool === 'pen'
+                            ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <PenTool className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        펜
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCanvasTool('eraser')}
+                        aria-pressed={canvasTool === 'eraser'}
+                        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                          canvasTool === 'eraser'
+                            ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <Eraser className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        지우개
+                      </button>
+                    </div>
+                    <Button variant="secondary" size="sm" onClick={clearAllCanvases}>
+                      전체 지우기
+                    </Button>
+                  </div>
                 </div>
                 <div
                   ref={drawScrollRef}
@@ -1008,7 +1057,9 @@ export default function StudentWorkspace() {
                       <div className="relative h-80 rounded-lg border border-slate-200 bg-white overflow-hidden touch-none">
                         <canvas
                           ref={(el) => setCanvasRef(page.id, el)}
-                          className="absolute inset-0 h-full w-full cursor-crosshair"
+                          className={`absolute inset-0 h-full w-full touch-none ${
+                            canvasTool === 'eraser' ? 'cursor-cell' : 'cursor-crosshair'
+                          }`}
                           onPointerDown={(e) => handleCanvasPointerDown(page.id, e)}
                           onPointerMove={(e) => handleCanvasPointerMove(page.id, e)}
                           onPointerUp={() => handleCanvasPointerUp(page.id)}
