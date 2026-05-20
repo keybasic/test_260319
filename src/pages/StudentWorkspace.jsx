@@ -17,10 +17,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import 'mathlive/static.css';
-import 'mathlive';
 
 import Button from '../components/Button';
+import GeometrySymbolInput from '../components/GeometrySymbolInput';
+import { normalizeSpeechTranscript } from '../lib/speechTranscript';
 import { getSolutionMethodsFromConfig } from '../data/mockData';
 import {
   fetchAIFeedback,
@@ -133,8 +133,6 @@ export default function StudentWorkspace() {
   }, [firstEnabledId]);
 
   const [draft, setDraft] = useState('');
-  const [mathLatex, setMathLatex] = useState('');
-  const mathFieldRef = useRef(null);
 
   const [chatMessages, setChatMessages] = useState(() => [
     {
@@ -178,12 +176,7 @@ export default function StudentWorkspace() {
   const [canvasTool, setCanvasTool] = useState('pen');
   const lastPhotoApiCompletedAtRef = useRef(0);
 
-  const verbalCombined = useMemo(() => {
-    const parts = [];
-    if (draft.trim()) parts.push(draft.trim());
-    if (mathLatex.trim()) parts.push(`[수식 LaTeX]\n${mathLatex.trim()}`);
-    return parts.join('\n\n');
-  }, [draft, mathLatex]);
+  const verbalCombined = useMemo(() => draft.trim(), [draft]);
 
   const debouncedVerbal = useDebouncedValue(
     verbalCombined,
@@ -197,22 +190,6 @@ export default function StudentWorkspace() {
   useEffect(() => {
     latestDebouncedVerbalRef.current = debouncedVerbal;
   }, [debouncedVerbal]);
-
-  useEffect(() => {
-    if (inputMode !== 'verbal') return;
-    const el = mathFieldRef.current;
-    if (!el) return;
-    const handler = () => {
-      try {
-        setMathLatex(el.getValue?.('latex') ?? el.value ?? '');
-      } catch {
-        setMathLatex('');
-      }
-    };
-    el.addEventListener('input', handler);
-    handler();
-    return () => el.removeEventListener('input', handler);
-  }, [inputMode]);
 
   useEffect(() => {
     if (inputMode !== 'verbal') return;
@@ -313,7 +290,7 @@ export default function StudentWorkspace() {
         const transcript = result?.[0]?.transcript;
         if (result?.isFinal && transcript) finalTranscript += transcript;
       }
-      const t = finalTranscript.trim();
+      const t = normalizeSpeechTranscript(finalTranscript.trim());
       if (!t) return;
       setDraft((prev) => {
         if (!prev) return t;
@@ -721,7 +698,7 @@ export default function StudentWorkspace() {
     const studentWorkContext = buildStudentWorkDescriptor({
       inputMode,
       draft,
-      mathLatex,
+      mathLatex: '',
       chatMessages: nextMessages,
       photoDataUrl,
       canvasHasInk,
@@ -766,7 +743,7 @@ export default function StudentWorkspace() {
     saveScoreSnapshot(problem.id, {
       inputMode,
       draft,
-      mathLatex,
+      mathLatex: '',
       chatMessages: chatMessages.map((m) => ({
         id: m.id,
         role: m.role,
@@ -968,35 +945,19 @@ export default function StudentWorkspace() {
                     )}
                   </Button>
                   <span className="text-xs text-slate-500">
-                    음성은 아래 텍스트 영역에 이어 붙습니다. 수식은 MathLive 칸에
-                    입력하세요.
+                    음성은 아래 설명 칸에 이어 붙습니다. 삼각형 ABC처럼
+                    나온 부분을 고른 뒤 △ 버튼으로 바꿀 수 있어요.
                   </span>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                  <p className="text-xs font-medium text-slate-600 mb-2">
-                    수식 입력 (MathLive)
-                  </p>
-                  <math-field
-                    ref={mathFieldRef}
-                    className="w-full min-h-[100px] rounded-lg border border-slate-300 bg-slate-50/80 px-2 py-2 text-base"
-                  />
-                </div>
-
-                <div
-                  className={`flex min-h-[280px] flex-col rounded-xl border bg-white/80 p-3 shadow-sm ${
-                    isRecording
-                      ? 'border-blue-500 ring-2 ring-blue-400/40 animate-pulse'
-                      : 'border-slate-200'
-                  }`}
-                >
-                  <textarea
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    placeholder="말로 설명한 내용과 추가 설명을 적어 보세요..."
-                    className="flex-1 min-h-[220px] resize-none rounded-lg border border-slate-300 bg-slate-50/70 px-3 py-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25"
-                  />
-                </div>
+                <GeometrySymbolInput
+                  value={draft}
+                  onChange={setDraft}
+                  label="정당화 설명"
+                  highlightRecording={isRecording}
+                  placeholder="말로 설명한 내용이 여기에 나타납니다. 직접 고치거나 △·∠·≡ 버튼으로 기호를 넣어 보세요."
+                  hint="글자를 드래그해 선택한 뒤 기호 버튼을 누면 선택한 부분이 기호로 바뀝니다. (예: 삼각형 → △)"
+                />
               </div>
             )}
 
@@ -1274,14 +1235,10 @@ export default function StudentWorkspace() {
         </h2>
         <p className="mt-2 text-xs text-slate-500">입력 방식: {inputMode}</p>
         {inputMode === 'verbal' && (
-          <div className="mt-2 text-sm space-y-2">
-            <p className="font-medium">말하기/텍스트</p>
+          <div className="mt-2 text-sm">
+            <p className="font-medium">정당화 설명</p>
             <p className="whitespace-pre-wrap rounded border border-slate-200 bg-slate-50 p-2">
               {draft || '(없음)'}
-            </p>
-            <p className="font-medium">수식 (LaTeX)</p>
-            <p className="whitespace-pre-wrap rounded border border-slate-200 bg-slate-50 p-2 font-mono text-xs">
-              {mathLatex || '(없음)'}
             </p>
           </div>
         )}

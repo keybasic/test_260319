@@ -22,7 +22,7 @@ export function canvasHasNonWhiteDrawing(canvas) {
 }
 
 function inputModeLabel(mode) {
-  if (mode === 'verbal') return '말하기·텍스트 / 수식';
+  if (mode === 'verbal') return '말하기·정당화 설명';
   if (mode === 'draw') return '디지털 판서(캔버스)';
   if (mode === 'photo') return '풀이 사진';
   return String(mode || '—');
@@ -47,10 +47,7 @@ export function buildStudentWorkDescriptor({
 
   if (inputMode === 'verbal') {
     lines.push(
-      `· 말하기·텍스트: ${draft.trim() || '(입력 없음)'}`
-    );
-    lines.push(
-      `· 수식(LaTeX): ${mathLatex.trim() || '(입력 없음)'}`
+      `· 정당화 설명(말하기·텍스트·기호): ${draft.trim() || '(입력 없음)'}`
     );
   } else if (inputMode === 'draw') {
     lines.push(
