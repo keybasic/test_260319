@@ -1,3 +1,5 @@
+import { fetchSemanticRubricGrading } from '../services/semanticRubricGrading';
+
 /** @typedef {{ id: string, logicKeyword: string, points: number }} GradingStep */
 
 const SNAPSHOT_PREFIX = 'studentScoreSnapshot:';
@@ -297,6 +299,67 @@ export function mergeRubricApiToBreakdown(steps, sources, payload) {
         ? Number(payload.maxTotalScore)
         : null,
   };
+}
+
+/**
+ * 점수 확인 창·PDF 제출에서 공통으로 쓰는 채점 결과 계산
+ * @param {{ title: string, proposition?: string, teachingGuide?: string, steps?: GradingStep[] }} problem
+ * @param {{ inputMode: string, draft?: string, mathLatex?: string, chatMessages?: object[] }} workSnapshot
+ */
+export async function resolveScoreBreakdown(problem, workSnapshot) {
+  const {
+    inputMode,
+    draft = '',
+    mathLatex = '',
+    chatMessages = [],
+  } = workSnapshot;
+
+  const sources = buildStudentTextSources({
+    inputMode,
+    draft,
+    mathLatex,
+    chatMessages,
+  });
+  const steps = problem.steps || [];
+  const stepsConfigured = hasConfiguredGradingSteps(steps);
+
+  if (!stepsConfigured) {
+    return { stepsConfigured: false, breakdown: null, scoreNote: null };
+  }
+
+  const labeled = sources
+    .filter((s) => s.text?.trim())
+    .map((s) => ({ label: s.label, text: s.text }));
+
+  if (!labeled.length || !steps.length) {
+    return {
+      stepsConfigured: true,
+      breakdown: computeStepScoreBreakdown(steps, sources),
+      scoreNote: null,
+    };
+  }
+
+  try {
+    const rubricPayload = await fetchSemanticRubricGrading({
+      problemTitle: problem.title,
+      proposition: problem.proposition,
+      teachingGuide: problem.teachingGuide,
+      steps,
+      labeledStudentSections: labeled,
+    });
+    return {
+      stepsConfigured: true,
+      breakdown: mergeRubricApiToBreakdown(steps, sources, rubricPayload),
+      scoreNote:
+        'GPT-4o 루브릭 의미 채점 결과입니다. (가정→근거→결론 연계를 분석합니다)',
+    };
+  } catch (e) {
+    return {
+      stepsConfigured: true,
+      breakdown: computeStepScoreBreakdown(steps, sources),
+      scoreNote: `의미 채점 API 오류로 키워드 방식으로 표시합니다. (${e?.message || String(e)})`,
+    };
+  }
 }
 
 export function saveScoreSnapshot(problemId, payload) {

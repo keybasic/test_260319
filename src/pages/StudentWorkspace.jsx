@@ -11,15 +11,13 @@ import {
   Loader2,
   ClipboardList,
 } from 'lucide-react';
-import { toPng } from 'html-to-image';
-import { jsPDF } from 'jspdf';
-import ReactMarkdown from 'react-markdown';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 
 import Button from '../components/Button';
 import GeometrySymbolInput from '../components/GeometrySymbolInput';
+import MathMarkdown from '../components/MathMarkdown';
+import ScoreBreakdownSection from '../components/ScoreBreakdownSection';
+import { captureDomToPdf } from '../lib/captureDomToPdf';
 import { normalizeSpeechTranscript } from '../lib/speechTranscript';
 import { getSolutionMethodsFromConfig } from '../data/mockData';
 import {
@@ -28,7 +26,11 @@ import {
 } from '../services/openaiFeedback';
 import { API_RATE, getThrottleWaitMs } from '../lib/apiCallRateLimit';
 import { useProblems } from '../context/ProblemsContext';
-import { hasConfiguredGradingSteps, saveScoreSnapshot } from '../lib/stepScore';
+import {
+  hasConfiguredGradingSteps,
+  resolveScoreBreakdown,
+  saveScoreSnapshot,
+} from '../lib/stepScore';
 import {
   buildStudentWorkDescriptor,
   canvasHasNonWhiteDrawing,
@@ -80,15 +82,6 @@ const MATH_VERIFICATION_PROTOCOL = `[수학적 엄밀함 검증 프로토콜]
 5. 교사의 가이드(teachingGuide) 절대 준수:
 - 교사가 설정한 'AI 지도 가이드'와 어긋나는 주장은 수학적으로 가능하더라도 경로 이탈을 막아야 한다.
 - "우리 이번 시간에는 [교사의 가이드 방식]을 활용해볼까?"처럼 교사의 지도 경로로 복귀시킨다.`;
-
-// GPT가 자주 주는 \( ... \), \[ ... \] 표기를
-// remark-math가 안정적으로 처리하는 $...$, $$...$$로 정규화
-function normalizeMathDelimiters(text) {
-  if (!text) return '';
-  return text
-    .replace(/\\\[((?:.|\n)*?)\\\]/g, (_, expr) => `$$${expr}$$`)
-    .replace(/\\\(((?:.|\n)*?)\\\)/g, (_, expr) => `$${expr}$`);
-}
 
 export default function StudentWorkspace() {
   const { problemId } = useParams();
@@ -172,6 +165,7 @@ export default function StudentWorkspace() {
 
   const pdfRootRef = useRef(null);
   const [pdfSubmitting, setPdfSubmitting] = useState(false);
+  const [pdfScoreResult, setPdfScoreResult] = useState(null);
   const [canvasTick, setCanvasTick] = useState(0);
   const [canvasTool, setCanvasTool] = useState('pen');
   const lastPhotoApiCompletedAtRef = useRef(0);
@@ -773,34 +767,26 @@ export default function StudentWorkspace() {
     if (!pdfRootRef.current) return;
     setPdfSubmitting(true);
     try {
-      const imgData = await toPng(pdfRootRef.current, {
-        cacheBust: true,
+      const scoreResult = await resolveScoreBreakdown(problem, {
+        inputMode,
+        draft,
+        mathLatex: '',
+        chatMessages: chatMessages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          text: m.text,
+          kind: m.kind,
+        })),
+      });
+      setPdfScoreResult(scoreResult);
+      await new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
       });
 
-      const img = new Image();
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = imgData;
-      });
-
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-      });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      const margin = 10;
-      const maxW = pageW - 2 * margin;
-      const maxH = pageH - 2 * margin;
-      const imgRatio = img.width / img.height;
-      const boxRatio = maxW / maxH;
-      const w = imgRatio > boxRatio ? maxW : maxH * imgRatio;
-      const h = imgRatio > boxRatio ? maxW / imgRatio : maxH;
-
-      pdf.addImage(imgData, 'PNG', margin, margin, w, h);
-      pdf.save(`정당화_과제_${problem.id}.pdf`);
+      await captureDomToPdf(
+        pdfRootRef.current,
+        `정당화_과제_${problem.id}.pdf`
+      );
     } catch (err) {
       console.error('PDF 생성 오류:', err);
       window.alert(err?.message || String(err));
@@ -849,12 +835,7 @@ export default function StudentWorkspace() {
             <p className="mt-4 rounded-lg bg-blue-50 p-4 text-slate-700 border border-blue-100">
               <strong className="text-blue-800">문제 명제:</strong>
               <span className="mt-2 block">
-                <ReactMarkdown
-                  remarkPlugins={[remarkMath]}
-                  rehypePlugins={[rehypeKatex]}
-                >
-                  {normalizeMathDelimiters(problem.proposition || '')}
-                </ReactMarkdown>
+                <MathMarkdown>{problem.proposition || ''}</MathMarkdown>
               </span>
             </p>
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 aspect-video overflow-hidden flex items-center justify-center">
@@ -1138,14 +1119,7 @@ export default function StudentWorkspace() {
                 }`}
               >
                 <div className="max-w-[95%] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-                  <div className="prose prose-sm max-w-none whitespace-pre-wrap break-words">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkMath]}
-                      rehypePlugins={[rehypeKatex]}
-                    >
-                      {normalizeMathDelimiters(msg.text)}
-                    </ReactMarkdown>
-                  </div>
+                  <MathMarkdown>{msg.text}</MathMarkdown>
                   <span className="mt-2 block text-xs text-slate-400">
                     {msg.timestamp}
                   </span>
@@ -1213,7 +1187,7 @@ export default function StudentWorkspace() {
             onClick={handleSubmitPdf}
             className={pdfSubmitting ? 'opacity-80' : ''}
           >
-            {pdfSubmitting ? 'PDF 생성 중…' : '과제 제출 (PDF 다운로드)'}
+            {pdfSubmitting ? '채점·PDF 생성 중…' : '과제 제출 (PDF 다운로드)'}
           </Button>
         </div>
       </footer>
@@ -1221,14 +1195,16 @@ export default function StudentWorkspace() {
       {/* PDF 캡처용 (화면 밖, html2canvas 대상) */}
       <div
         ref={pdfRootRef}
-        className="pointer-events-none fixed left-0 top-0 z-[-1] w-[794px] bg-white p-6 text-slate-900"
+        className="pointer-events-none fixed left-0 top-0 z-[-1] w-[794px] bg-white p-6 text-slate-900 [&_.katex]:text-inherit"
         aria-hidden
       >
         <h1 className="text-xl font-bold text-blue-900">
           2학년 도형의 성질 정당화 연습 — 과제 제출본
         </h1>
         <p className="mt-2 text-sm font-semibold">{problem.title}</p>
-        <p className="mt-1 text-sm leading-relaxed">{problem.proposition}</p>
+        <MathMarkdown className="mt-1 text-sm leading-relaxed">
+          {problem.proposition}
+        </MathMarkdown>
 
         <h2 className="mt-6 text-base font-bold border-b border-slate-300 pb-1">
           학생 풀이
@@ -1237,9 +1213,12 @@ export default function StudentWorkspace() {
         {inputMode === 'verbal' && (
           <div className="mt-2 text-sm">
             <p className="font-medium">정당화 설명</p>
-            <p className="whitespace-pre-wrap rounded border border-slate-200 bg-slate-50 p-2">
-              {draft || '(없음)'}
-            </p>
+            <MathMarkdown
+              className="rounded border border-slate-200 bg-slate-50 p-2 text-sm"
+              emptyLabel="(없음)"
+            >
+              {draft}
+            </MathMarkdown>
           </div>
         )}
         {inputMode === 'draw' && (
@@ -1279,13 +1258,29 @@ export default function StudentWorkspace() {
         <h2 className="mt-6 text-base font-bold border-b border-slate-300 pb-1">
           AI 피드백 기록
         </h2>
-        <ul className="mt-2 list-decimal space-y-2 pl-5 text-sm">
+        <ol className="mt-2 list-decimal space-y-3 pl-5 text-sm">
           {chatMessages.map((m) => (
-            <li key={m.id} className="whitespace-pre-wrap">
-              {m.text}
+            <li key={m.id}>
+              <MathMarkdown>{m.text}</MathMarkdown>
             </li>
           ))}
-        </ul>
+        </ol>
+
+        <h2 className="mt-6 text-base font-bold border-b border-slate-300 pb-1">
+          단계별 채점 결과
+        </h2>
+        {pdfScoreResult ? (
+          <ScoreBreakdownSection
+            variant="print"
+            stepsConfigured={pdfScoreResult.stepsConfigured}
+            breakdown={pdfScoreResult.breakdown}
+            scoreNote={pdfScoreResult.scoreNote}
+          />
+        ) : (
+          <p className="mt-2 text-sm text-slate-500">
+            (과제 제출 시 채점 결과가 포함됩니다)
+          </p>
+        )}
       </div>
     </div>
   );
