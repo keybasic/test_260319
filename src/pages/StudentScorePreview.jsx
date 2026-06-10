@@ -158,9 +158,7 @@ export default function StudentScorePreview() {
         />
 
         <p className="mt-6 text-[11px] text-slate-500 sm:mt-8 sm:text-xs">
-          의미 채점은 VITE_OPENAI_API_KEY와 네트워크로 OpenAI에 연결됩니다. 판서만
-          쓸 때는 AI 가이드의 필기 해석이 포함된 뒤 점수 확인을 권장합니다. API
-          오류 시에만 키워드 방식으로 대체됩니다.
+        
         </p>
       </main>
     </div>
