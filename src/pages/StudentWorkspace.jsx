@@ -1049,9 +1049,11 @@ export default function StudentWorkspace() {
                         <span className="h-px flex-1 bg-slate-200" />
                       </div>
                       <div
-                        className={`relative h-44 rounded-lg border border-slate-200 bg-white overflow-hidden sm:h-56 md:h-64 lg:h-80 ${
-                          canvasTool === 'scroll' ? '' : 'touch-none'
-                        }`}
+                        className={`relative rounded-lg border border-slate-200 bg-white overflow-hidden ${
+                          canvasPages.length === 1
+                            ? 'h-[min(560px,calc(100dvh-220px))] min-h-60'
+                            : 'h-60 sm:h-72 md:h-80 lg:h-96'
+                        } ${canvasTool === 'scroll' ? '' : 'touch-none'}`}
                       >
                         <canvas
                           ref={(el) => setCanvasRef(page.id, el)}
@@ -1075,7 +1077,7 @@ export default function StudentWorkspace() {
                 <button
                   type="button"
                   onClick={addCanvasPage}
-                  className="mt-2 shrink-0 w-full rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/40 px-3 py-3 text-xs font-semibold text-blue-700 hover:bg-blue-100/60 sm:px-4 sm:py-3.5 sm:text-sm"
+                  className="mt-2 shrink-0 w-full rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/40 px-3 py-2 text-[11px] font-semibold text-blue-700 hover:bg-blue-100/60 sm:px-4 sm:text-xs"
                 >
                   + 풀이 공간 추가하기
                 </button>
@@ -1218,11 +1220,11 @@ export default function StudentWorkspace() {
       </div>
 
       {/* 과제 제출 + PDF용 숨김 렌더 */}
-      <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3">
+      <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-2">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-end gap-2">
           <Button
             variant="primary"
-            size="lg"
+            size="md"
             leftIcon={ClipboardList}
             disabled={!hasGradingSteps}
             title={
@@ -1233,19 +1235,19 @@ export default function StudentWorkspace() {
             onClick={handleOpenScorePreview}
             className={
               !hasGradingSteps
-                ? 'disabled:!opacity-100 disabled:!bg-slate-300 disabled:!text-slate-600 disabled:hover:!bg-slate-300'
-                : ''
+                ? 'disabled:!opacity-100 disabled:!bg-slate-300 disabled:!text-slate-600 disabled:hover:!bg-slate-300 !py-2'
+                : '!py-2'
             }
           >
             점수 확인
           </Button>
           <Button
             variant="primary"
-            size="lg"
+            size="md"
             leftIcon={pdfSubmitting ? Loader2 : Send}
             disabled={pdfSubmitting}
             onClick={handleSubmitPdf}
-            className={pdfSubmitting ? 'opacity-80' : ''}
+            className={pdfSubmitting ? 'opacity-80 !py-2' : '!py-2'}
           >
             {pdfSubmitting ? '채점·PDF 생성 중…' : '과제 제출 (PDF 다운로드)'}
           </Button>
