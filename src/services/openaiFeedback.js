@@ -35,7 +35,12 @@ const SYSTEM_PROMPT = `[시스템 프롬프트: 중학교 2학년 기하 전문 
 - 친절하고 격려하는 말투를 사용한다.
 - 수학 용어(합동 조건, 엇각, 동위각 등)는 2022 교육과정 기준으로 정확히 사용한다.
 - 반드시 한국어로 답한다.
-- 수학 기호는 LaTeX(\\( ... \\), \\[ ... \\])를 사용한다.`;
+- 수학 기호는 LaTeX(\\( ... \\), \\[ ... \\])를 사용한다.
+
+6. 학생 산출물 구분 (엄격):
+- 【문제 맥락】의 명제·조건은 학생이 말·쓴 것이 아니다. 절대 "학생이 ~라고 주장함"처럼 문제 지문을 학생 서술로 바꿔 쓰지 않는다.
+- 【학생 풀이/입력】과 첨부 이미지에 실제로 있는 내용만 학생 풀이로 다룬다.
+- 입력이 없거나 이미지에 필기가 없으면 "아직 풀이가 보이지 않네"라고만 말하고, 문제 이해를 돕는 질문 하나만 한다.`;
 
 function buildTeacherGuideSystemMessage(teachingGuide) {
   const guide = (teachingGuide || '').trim();
@@ -130,15 +135,35 @@ export async function fetchAIFeedback({
   userText = '',
   imagesBase64 = [],
 }) {
-  const userMessage = [
-    '【문제 맥락】',
+  const imgs = Array.isArray(imagesBase64) ? imagesBase64 : [];
+  const studentText = (userText || '').trim();
+  const hasImages = imgs.length > 0;
+
+  const problemSystemMessage = [
+    '【문제 맥락 — 참고용, 학생 산출물 아님】',
     problemContext || '(문제 정보 없음)',
     '',
-    '【학생 풀이/입력】',
-    userText.trim() || '(텍스트 없음 — 이미지 위주일 수 있음)',
+    '위 명제·조건을 학생이 주장·서술한 것처럼 요약하거나 인용하지 마라.',
   ].join('\n');
 
-  const userContent = buildUserContent(userMessage, imagesBase64);
+  const studentWorkSystemMessage = [
+    '【학생 풀이/입력 — 이것만 학생 산출물로 간주】',
+    studentText ||
+      (hasImages
+        ? '(텍스트 없음 — 첨부 이미지에 보이는 필기만 학생 풀이로 본다)'
+        : '(학생 입력 없음)'),
+    '',
+    '규칙:',
+    '- 학생이 실제로 쓰거나 말한 내용만 짧게 언급한 뒤, 질문 중심 힌트 하나만 준다.',
+    '- 텍스트가 없고 이미지에 필기·도형이 없으면 풀이 없음으로 처리하고, "아직 풀이가 보이지 않네"라고만 말한 뒤 문제 이해를 돕는 질문 하나만 한다.',
+    '- 문제 지문의 조건(예: AB=AC, ∠B=∠C)을 학생이 말한 것처럼 재서술하지 않는다.',
+  ].join('\n');
+
+  const userPrompt = hasImages
+    ? '첨부 이미지에서 학생이 실제로 그린 필기·도형만 읽는다. 빈 캔버스이면 학생 풀이를 추측·요약하지 말고, 풀이 없음으로 처리한 뒤 질문 하나만 한다. 필기가 있으면 그 내용만 짧게 언급한 뒤 질문 하나.'
+    : '위 【학생 풀이/입력】에 근거해 질문 중심 힌트 하나만 줘. 입력이 (학생 입력 없음)이면 풀이 요약 없이 격려와 첫 질문만 한다.';
+
+  const userContent = buildUserContent(userPrompt, imgs);
   const teacherGuideMessage = buildTeacherGuideSystemMessage(teachingGuide);
   const verificationProtocolMessage =
     buildVerificationProtocolSystemMessage(verificationProtocol);
@@ -153,6 +178,8 @@ export async function fetchAIFeedback({
       ...(teacherGuideMessage
         ? [{ role: 'system', content: teacherGuideMessage }]
         : []),
+      { role: 'system', content: problemSystemMessage },
+      { role: 'system', content: studentWorkSystemMessage },
       {
         role: 'user',
         content: userContent,

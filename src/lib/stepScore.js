@@ -36,33 +36,7 @@ export function hasConfiguredGradingSteps(steps) {
   });
 }
 
-/**
- * 학생이 작성한 텍스트를 출처별로 모은다. (키워드 매칭 위치 표시용)
- * 디지털 판서 등은 AI 가이드 자동 해석(kind:gpt) 텍스트를 포함한다.
- */
-export function buildStudentTextSources({
-  inputMode,
-  draft,
-  mathLatex,
-  chatMessages,
-}) {
-  const sources = [];
-
-  if (draft?.trim()) {
-    sources.push({
-      id: 'draft',
-      label: '말하기·텍스트',
-      text: draft.trim(),
-    });
-  }
-  if (mathLatex?.trim()) {
-    sources.push({
-      id: 'latex',
-      label: '수식 (LaTeX)',
-      text: mathLatex.trim(),
-    });
-  }
-
+function appendChatAndAutoFeedbackSources(sources, chatMessages) {
   const users = (chatMessages || []).filter((m) => m.role === 'user');
   users.forEach((m, i) => {
     const t = (m.text || '').trim();
@@ -87,6 +61,109 @@ export function buildStudentTextSources({
       isAIGuideDerived: true,
     });
   }
+}
+
+/**
+ * PDF·통합 채점용 — 학생이 사용한 모든 풀이 방식의 내용을 한꺼번에 수집
+ */
+export function buildCombinedStudentTextSources({
+  draft = '',
+  mathLatex = '',
+  chatMessages = [],
+  canvasHasInk = false,
+  canvasPageCount = 0,
+  photoDataUrl = '',
+}) {
+  const sources = [];
+
+  if (draft?.trim()) {
+    sources.push({
+      id: 'draft',
+      label: '말하기·정당화 설명',
+      text: draft.trim(),
+    });
+  }
+  if (mathLatex?.trim()) {
+    sources.push({
+      id: 'latex',
+      label: '수식',
+      text: mathLatex.trim(),
+    });
+  }
+  if (canvasHasInk) {
+    sources.push({
+      id: 'draw-ink',
+      label: '디지털 판서',
+      text: `캔버스 필기 있음 (풀이 공간 ${canvasPageCount}개)`,
+    });
+  }
+  if (photoDataUrl) {
+    sources.push({
+      id: 'photo',
+      label: '풀이 사진',
+      text: '풀이 사진 업로드됨',
+    });
+  }
+
+  appendChatAndAutoFeedbackSources(sources, chatMessages);
+
+  const hasSearchableText = sources.some((s) => s.text?.trim());
+  if (canvasHasInk && !hasSearchableText) {
+    sources.push({
+      id: 'mode-note-draw',
+      label: '풀이 공간(필기)',
+      text: '',
+      emptyHint:
+        '필기만 있고 AI 가이드 해석이 아직 없습니다. 말하기·텍스트 또는 AI 대화를 추가해 보세요.',
+    });
+  }
+  if (photoDataUrl && !hasSearchableText) {
+    sources.push({
+      id: 'mode-note-photo',
+      label: '풀이 사진',
+      text: '',
+      emptyHint:
+        '사진만 있고 해석 텍스트가 없습니다. 말하기·텍스트를 추가하거나 사진 분석 후 다시 시도해 보세요.',
+    });
+  }
+
+  return sources;
+}
+
+/**
+ * 학생이 작성한 텍스트를 출처별로 모은다. (키워드 매칭 위치 표시용)
+ * 디지털 판서 등은 AI 가이드 자동 해석(kind:gpt) 텍스트를 포함한다.
+ */
+export function buildStudentTextSources({
+  inputMode,
+  draft,
+  mathLatex,
+  chatMessages,
+}) {
+  const sources = [];
+
+  if (inputMode === 'verbal' && draft?.trim()) {
+    sources.push({
+      id: 'draft',
+      label: '말하기·텍스트',
+      text: draft.trim(),
+    });
+  } else if (draft?.trim()) {
+    sources.push({
+      id: 'draft-extra',
+      label: '추가 텍스트',
+      text: draft.trim(),
+    });
+  }
+  if (mathLatex?.trim()) {
+    sources.push({
+      id: 'latex',
+      label: '수식 (LaTeX)',
+      text: mathLatex.trim(),
+    });
+  }
+
+  appendChatAndAutoFeedbackSources(sources, chatMessages);
 
   const hasSearchableText = sources.some((s) => s.text?.trim());
 
@@ -304,7 +381,7 @@ export function mergeRubricApiToBreakdown(steps, sources, payload) {
 /**
  * 점수 확인 창·PDF 제출에서 공통으로 쓰는 채점 결과 계산
  * @param {{ title: string, proposition?: string, teachingGuide?: string, steps?: GradingStep[] }} problem
- * @param {{ inputMode: string, draft?: string, mathLatex?: string, chatMessages?: object[] }} workSnapshot
+ * @param {{ inputMode: string, draft?: string, mathLatex?: string, chatMessages?: object[], includeAllModes?: boolean, canvasHasInk?: boolean, canvasPageCount?: number, photoDataUrl?: string }} workSnapshot
  */
 export async function resolveScoreBreakdown(problem, workSnapshot) {
   const {
@@ -312,14 +389,27 @@ export async function resolveScoreBreakdown(problem, workSnapshot) {
     draft = '',
     mathLatex = '',
     chatMessages = [],
+    includeAllModes = false,
+    canvasHasInk = false,
+    canvasPageCount = 0,
+    photoDataUrl = '',
   } = workSnapshot;
 
-  const sources = buildStudentTextSources({
-    inputMode,
-    draft,
-    mathLatex,
-    chatMessages,
-  });
+  const sources = includeAllModes
+    ? buildCombinedStudentTextSources({
+        draft,
+        mathLatex,
+        chatMessages,
+        canvasHasInk,
+        canvasPageCount,
+        photoDataUrl,
+      })
+    : buildStudentTextSources({
+        inputMode,
+        draft,
+        mathLatex,
+        chatMessages,
+      });
   const steps = problem.steps || [];
   const stepsConfigured = hasConfiguredGradingSteps(steps);
 

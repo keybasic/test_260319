@@ -438,6 +438,12 @@ export default function StudentWorkspace() {
       signature = latestUrls.join('||');
       if (signature === lastCanvasSentRef.current) return;
 
+      const canvasHasInk = canvasPages.some((page) => {
+        const c = canvasRefs.current[page.id];
+        return canvasHasNonWhiteDrawing(c);
+      });
+      if (!canvasHasInk) return;
+
       setAiLoading(true);
       try {
         const reply = await fetchAIFeedback({
@@ -445,7 +451,7 @@ export default function StudentWorkspace() {
           teachingGuide: problem.teachingGuide || '',
           verificationProtocol: MATH_VERIFICATION_PROTOCOL,
           userText:
-            '캔버스 필기 이미지를 읽고, OCR에 가깝게 텍스트로 요약한 뒤 정당화 논리에 대한 힌트(질문 중심) 피드백을 주세요.',
+            '(캔버스 필기 이미지 첨부 — 학생이 실제로 그린 내용만 OCR·요약)',
           imagesBase64: latestUrls,
         });
         if (canvasVisionSeqRef.current !== seq) return;
@@ -470,7 +476,7 @@ export default function StudentWorkspace() {
         if (canvasVisionSeqRef.current === seq) setAiLoading(false);
       }
     }, API_RATE.canvas.idleDebounceMs);
-  }, [collectCanvasDataUrls, inputMode, problem]);
+  }, [canvasPages, collectCanvasDataUrls, inputMode, problem]);
 
   const getCanvasPoint = (e, canvasId) => {
     const canvas = canvasRefs.current[canvasId];
@@ -584,7 +590,7 @@ export default function StudentWorkspace() {
           teachingGuide: problem.teachingGuide || '',
           verificationProtocol: MATH_VERIFICATION_PROTOCOL,
           userText:
-            '업로드된 풀이 사진을 OCR하고, 증명의 논리 위계를 간단히 정리한 뒤 종합 힌트 피드백(질문 중심)을 주세요.',
+            '(풀이 사진 첨부 — 사진에 실제로 보이는 학생 필기·풀이만 OCR·요약)',
           imagesBase64: [dataUrl],
         });
         lastPhotoApiCompletedAtRef.current = Date.now();
@@ -785,6 +791,11 @@ export default function StudentWorkspace() {
     if (!pdfRootRef.current) return;
     setPdfSubmitting(true);
     try {
+      const inkPageCount = canvasPages.filter((page) => {
+        const c = canvasRefs.current[page.id];
+        return c && canvasHasNonWhiteDrawing(c);
+      }).length;
+
       const scoreResult = await resolveScoreBreakdown(problem, {
         inputMode,
         draft,
@@ -795,6 +806,10 @@ export default function StudentWorkspace() {
           text: m.text,
           kind: m.kind,
         })),
+        includeAllModes: true,
+        canvasHasInk: inkPageCount > 0,
+        canvasPageCount: inkPageCount,
+        photoDataUrl,
       });
       setPdfScoreResult(scoreResult);
       await new Promise((resolve) => {
@@ -813,20 +828,37 @@ export default function StudentWorkspace() {
     }
   };
 
-  const drawPdfDataUrls = useMemo(() => {
-    if (inputMode !== 'draw') return [];
-    return canvasPages
-      .map((page) => canvasRefs.current[page.id])
-      .filter(Boolean)
-      .map((canvas) => {
+  const pdfStudentWork = useMemo(() => {
+    const drawPages = canvasPages
+      .map((page, idx) => {
+        const canvas = canvasRefs.current[page.id];
+        if (!canvas || !canvasHasNonWhiteDrawing(canvas)) return null;
         try {
-          return canvas.toDataURL('image/png', 0.92);
+          return { index: idx + 1, url: canvas.toDataURL('image/png', 0.92) };
         } catch {
-          return '';
+          return null;
         }
       })
       .filter(Boolean);
-  }, [inputMode, canvasPages, canvasTick]);
+
+    const hasVerbal = Boolean(draft.trim());
+    const hasDraw = drawPages.length > 0;
+    const hasPhoto = Boolean(photoDataUrl);
+
+    const usedModeLabels = [];
+    if (hasVerbal) usedModeLabels.push('말로 설명하기');
+    if (hasDraw) usedModeLabels.push('화면에 풀기');
+    if (hasPhoto) usedModeLabels.push('풀이 촬영');
+
+    return {
+      drawPages,
+      hasVerbal,
+      hasDraw,
+      hasPhoto,
+      hasAny: hasVerbal || hasDraw || hasPhoto,
+      usedModeLabels,
+    };
+  }, [draft, canvasPages, canvasTick, photoDataUrl]);
 
   return (
     <div className="flex h-screen flex-col bg-slate-50">
@@ -1271,50 +1303,58 @@ export default function StudentWorkspace() {
         <h2 className="mt-6 text-base font-bold border-b border-slate-300 pb-1">
           학생 풀이
         </h2>
-        <p className="mt-2 text-xs text-slate-500">입력 방식: {inputMode}</p>
-        {inputMode === 'verbal' && (
-          <div className="mt-2 text-sm">
-            <p className="font-medium">정당화 설명</p>
+        <p className="mt-2 text-xs text-slate-500">
+          사용한 풀이 방식:{' '}
+          {pdfStudentWork.usedModeLabels.length > 0
+            ? pdfStudentWork.usedModeLabels.join(', ')
+            : '(없음)'}
+        </p>
+
+        {pdfStudentWork.hasVerbal && (
+          <div className="mt-4 text-sm">
+            <h3 className="font-semibold text-slate-800">① 말로 설명하기</h3>
             <MathMarkdown
-              className="rounded border border-slate-200 bg-slate-50 p-2 text-sm"
+              className="mt-1 rounded border border-slate-200 bg-slate-50 p-2 text-sm"
               emptyLabel="(없음)"
             >
               {draft}
             </MathMarkdown>
           </div>
         )}
-        {inputMode === 'draw' && (
-          <div className="mt-2">
-            {drawPdfDataUrls.length > 0 ? (
-              <div className="space-y-3">
-                {drawPdfDataUrls.map((url, idx) => (
-                  <div key={`pdf-draw-${idx}`}>
-                    <p className="mb-1 text-xs text-slate-500">풀이 공간 {idx + 1}</p>
-                    <img
-                      src={url}
-                      alt={`필기 ${idx + 1}`}
-                      className="max-h-80 border border-slate-200"
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-500">(필기 없음)</p>
-            )}
+
+        {pdfStudentWork.hasDraw && (
+          <div className="mt-4">
+            <h3 className="text-sm font-semibold text-slate-800">② 화면에 풀기</h3>
+            <div className="mt-2 space-y-3">
+              {pdfStudentWork.drawPages.map((page) => (
+                <div key={`pdf-draw-${page.index}`}>
+                  <p className="mb-1 text-xs text-slate-500">
+                    풀이 공간 {page.index}
+                  </p>
+                  <img
+                    src={page.url}
+                    alt={`필기 ${page.index}`}
+                    className="max-h-80 border border-slate-200"
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         )}
-        {inputMode === 'photo' && (
-          <div className="mt-2">
-            {photoDataUrl ? (
-              <img
-                src={photoDataUrl}
-                alt="풀이 사진"
-                className="max-h-80 border border-slate-200"
-              />
-            ) : (
-              <p className="text-sm text-slate-500">(사진 없음)</p>
-            )}
+
+        {pdfStudentWork.hasPhoto && (
+          <div className="mt-4">
+            <h3 className="text-sm font-semibold text-slate-800">③ 풀이 촬영</h3>
+            <img
+              src={photoDataUrl}
+              alt="풀이 사진"
+              className="mt-2 max-h-80 border border-slate-200"
+            />
           </div>
+        )}
+
+        {!pdfStudentWork.hasAny && (
+          <p className="mt-2 text-sm text-slate-500">(기록된 풀이 없음)</p>
         )}
 
         <h2 className="mt-6 text-base font-bold border-b border-slate-300 pb-1">
