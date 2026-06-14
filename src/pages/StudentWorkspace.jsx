@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   PenTool,
   Eraser,
+  Hand,
   Camera,
   Mic,
   SquareStop,
@@ -83,6 +84,12 @@ const MATH_VERIFICATION_PROTOCOL = `[수학적 엄밀함 검증 프로토콜]
 - 교사가 설정한 'AI 지도 가이드'와 어긋나는 주장은 수학적으로 가능하더라도 경로 이탈을 막아야 한다.
 - "우리 이번 시간에는 [교사의 가이드 방식]을 활용해볼까?"처럼 교사의 지도 경로로 복귀시킨다.`;
 
+const INPUT_MODE_SHORT_LABEL = {
+  verbal: '말하기',
+  draw: '판서',
+  photo: '촬영',
+};
+
 export default function StudentWorkspace() {
   const { problemId } = useParams();
   const navigate = useNavigate();
@@ -141,6 +148,8 @@ export default function StudentWorkspace() {
 
   const [isRecording, setIsRecording] = useState(false);
   const recognitionRef = useRef(null);
+  /** 태블릿 등에서 onresult가 같은 final 구간을 반복 보내는 것 방지 */
+  const speechProcessedIndexRef = useRef(0);
 
   const [canvasPages, setCanvasPages] = useState(() => [
     { id: `canvas-${Date.now()}` },
@@ -271,6 +280,7 @@ export default function StudentWorkspace() {
     }
     if (isRecording) return;
 
+    speechProcessedIndexRef.current = 0;
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
     recognition.lang = 'ko-KR';
@@ -279,10 +289,17 @@ export default function StudentWorkspace() {
 
     recognition.onresult = (event) => {
       let finalTranscript = '';
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+      // event.resultIndex만 쓰면 모바일 Chrome에서 이미 처리한 final이 다시 들어올 수 있음
+      for (
+        let i = speechProcessedIndexRef.current;
+        i < event.results.length;
+        i += 1
+      ) {
         const result = event.results[i];
-        const transcript = result?.[0]?.transcript;
-        if (result?.isFinal && transcript) finalTranscript += transcript;
+        if (!result?.isFinal) break;
+        const transcript = result[0]?.transcript;
+        if (transcript) finalTranscript += transcript;
+        speechProcessedIndexRef.current = i + 1;
       }
       const t = normalizeSpeechTranscript(finalTranscript.trim());
       if (!t) return;
@@ -487,6 +504,7 @@ export default function StudentWorkspace() {
   };
 
   const handleCanvasPointerDown = (canvasId, e) => {
+    if (canvasTool === 'scroll') return;
     e.preventDefault();
     const p = getCanvasPoint(e, canvasId);
     if (!p) return;
@@ -824,15 +842,15 @@ export default function StudentWorkspace() {
         </button>
       </header>
 
-      <div className="grid flex-1 min-h-0 grid-cols-3">
+      <div className="grid flex-1 min-h-0 grid-cols-1 md:grid-cols-[minmax(0,0.88fr)_minmax(0,1.06fr)_minmax(0,1.06fr)] lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.09fr)_minmax(0,1.09fr)]">
         {/* 좌: 문제 */}
-        <section className="flex min-h-0 flex-col border-r border-slate-200 bg-white overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-6">
-            <h2 className="text-xl font-semibold text-slate-800 flex items-center gap-2">
+        <section className="flex min-h-0 flex-col border-r border-slate-200 bg-white overflow-hidden md:max-h-full">
+          <div className="flex-1 overflow-y-auto p-4 md:p-5 lg:p-6">
+            <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2 md:text-xl">
               <span aria-hidden>{problem.emoji}</span>
               {problem.title}
             </h2>
-            <p className="mt-4 rounded-lg bg-blue-50 p-4 text-slate-700 border border-blue-100">
+            <p className="mt-3 rounded-lg bg-blue-50 p-3 text-sm text-slate-700 border border-blue-100 md:mt-4 md:p-4">
               <strong className="text-blue-800">문제 명제:</strong>
               <span className="mt-2 block">
                 <MathMarkdown>{problem.proposition || ''}</MathMarkdown>
@@ -866,8 +884,19 @@ export default function StudentWorkspace() {
             </p>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto p-4">
-            <div className="flex flex-wrap gap-2 mb-4">
+          <div
+            className={`flex-1 min-h-0 flex flex-col ${
+              inputMode === 'draw' ? 'overflow-hidden' : 'overflow-y-auto'
+            }`}
+          >
+            <div
+              className={
+                inputMode === 'draw'
+                  ? 'flex flex-1 min-h-0 flex-col px-3 py-3 sm:px-4'
+                  : 'p-3 sm:p-4'
+              }
+            >
+            <div className="mb-3 flex shrink-0 flex-nowrap gap-1 sm:gap-1.5">
               {solutionMethods.map((method) => {
                 const active = inputMode === method.id;
                 const Icon =
@@ -876,14 +905,17 @@ export default function StudentWorkspace() {
                     : method.id === 'draw'
                       ? PenTool
                       : Camera;
+                const shortLabel =
+                  INPUT_MODE_SHORT_LABEL[method.id] ?? method.label;
                 return (
                   <button
                     key={method.id}
                     type="button"
                     disabled={!method.enabled}
                     onClick={() => method.enabled && setInputMode(method.id)}
+                    title={method.label}
                     className={[
-                      'inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition-colors',
+                      'inline-flex min-w-0 flex-1 items-center justify-center gap-1 rounded-lg border px-1.5 py-1.5 text-[10px] font-semibold leading-tight transition-colors sm:flex-none sm:gap-1.5 sm:rounded-xl sm:px-2.5 sm:py-2 sm:text-xs',
                       !method.enabled
                         ? 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed line-through'
                         : active
@@ -891,8 +923,8 @@ export default function StudentWorkspace() {
                           : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
                     ].join(' ')}
                   >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    <span>{method.label}</span>
+                    <Icon className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" />
+                    <span className="truncate">{shortLabel}</span>
                   </button>
                 );
               })}
@@ -943,12 +975,12 @@ export default function StudentWorkspace() {
             )}
 
             {inputMode === 'draw' && (
-              <div className="flex h-[min(520px,calc(100vh-220px))] min-h-[320px] flex-col rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-slate-700">
+              <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-2 shadow-sm sm:p-3">
+                <div className="mb-2 shrink-0 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-medium text-slate-700 sm:text-sm">
                     디지털 판서 (Canvas)
                   </p>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                     <div
                       className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5"
                       role="group"
@@ -958,7 +990,7 @@ export default function StudentWorkspace() {
                         type="button"
                         onClick={() => setCanvasTool('pen')}
                         aria-pressed={canvasTool === 'pen'}
-                        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                        className={`inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors sm:gap-1.5 sm:px-2.5 sm:text-xs ${
                           canvasTool === 'pen'
                             ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
                             : 'text-slate-600 hover:bg-slate-100'
@@ -971,7 +1003,7 @@ export default function StudentWorkspace() {
                         type="button"
                         onClick={() => setCanvasTool('eraser')}
                         aria-pressed={canvasTool === 'eraser'}
-                        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                        className={`inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors sm:gap-1.5 sm:px-2.5 sm:text-xs ${
                           canvasTool === 'eraser'
                             ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
                             : 'text-slate-600 hover:bg-slate-100'
@@ -980,27 +1012,55 @@ export default function StudentWorkspace() {
                         <Eraser className="h-3.5 w-3.5 shrink-0" aria-hidden />
                         지우개
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setCanvasTool('scroll')}
+                        aria-pressed={canvasTool === 'scroll'}
+                        className={`inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-semibold transition-colors sm:gap-1.5 sm:px-2.5 sm:text-xs ${
+                          canvasTool === 'scroll'
+                            ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <Hand className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        스크롤
+                      </button>
                     </div>
                     <Button variant="secondary" size="sm" onClick={clearAllCanvases}>
                       전체 지우기
                     </Button>
                   </div>
                 </div>
+                {canvasTool === 'scroll' ? (
+                  <p className="mb-2 shrink-0 text-[11px] text-blue-700 sm:text-xs">
+                    스크롤 모드: 손가락으로 아래·위로 밀어 풀이 공간을 이동할 수
+                    있어요. 필기할 때는 펜을 선택하세요.
+                  </p>
+                ) : null}
                 <div
                   ref={drawScrollRef}
-                  className="flex-1 min-h-0 space-y-4 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/40 p-3"
+                  className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-slate-50/40 p-2 sm:space-y-4 sm:p-3"
+                  style={{ WebkitOverflowScrolling: 'touch' }}
                 >
                   {canvasPages.map((page, idx) => (
-                    <div key={page.id} className="space-y-2">
-                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <div key={page.id} className="space-y-1.5 sm:space-y-2">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-500 sm:text-xs">
                         <span className="font-semibold">풀이 공간 {idx + 1}</span>
                         <span className="h-px flex-1 bg-slate-200" />
                       </div>
-                      <div className="relative h-80 rounded-lg border border-slate-200 bg-white overflow-hidden touch-none">
+                      <div
+                        className={`relative h-44 rounded-lg border border-slate-200 bg-white overflow-hidden sm:h-56 md:h-64 lg:h-80 ${
+                          canvasTool === 'scroll' ? '' : 'touch-none'
+                        }`}
+                      >
                         <canvas
                           ref={(el) => setCanvasRef(page.id, el)}
-                          className={`absolute inset-0 h-full w-full touch-none ${
-                            canvasTool === 'eraser' ? 'cursor-cell' : 'cursor-crosshair'
+                          className={`absolute inset-0 h-full w-full ${
+                            canvasTool === 'scroll'
+                              ? 'pointer-events-none'
+                              : canvasTool === 'eraser'
+                                ? 'cursor-cell touch-none'
+                                : 'cursor-crosshair touch-none'
                           }`}
                           onPointerDown={(e) => handleCanvasPointerDown(page.id, e)}
                           onPointerMove={(e) => handleCanvasPointerMove(page.id, e)}
@@ -1011,15 +1071,14 @@ export default function StudentWorkspace() {
                       </div>
                     </div>
                   ))}
-
-                  <button
-                    type="button"
-                    onClick={addCanvasPage}
-                    className="w-full rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/40 px-4 py-4 text-sm font-semibold text-blue-700 hover:bg-blue-100/60"
-                  >
-                    + 풀이 공간 추가하기
-                  </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={addCanvasPage}
+                  className="mt-2 shrink-0 w-full rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/40 px-3 py-3 text-xs font-semibold text-blue-700 hover:bg-blue-100/60 sm:px-4 sm:py-3.5 sm:text-sm"
+                >
+                  + 풀이 공간 추가하기
+                </button>
               </div>
             )}
 
@@ -1089,6 +1148,7 @@ export default function StudentWorkspace() {
                 </p>
               </div>
             )}
+            </div>
           </div>
         </section>
 
