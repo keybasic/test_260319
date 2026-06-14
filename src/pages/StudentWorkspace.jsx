@@ -59,18 +59,28 @@ function problemContextText(problem) {
   return `제목: ${problem.title}\n명제: ${problem.proposition}`;
 }
 
+function aiProblemParams(problem) {
+  return {
+    problemContext: problemContextText(problem),
+    proposition: problem.proposition || '',
+    problemTitle: problem.title || '',
+    teachingGuide: problem.teachingGuide || '',
+    verificationProtocol: MATH_VERIFICATION_PROTOCOL,
+  };
+}
+
 const MATH_VERIFICATION_PROTOCOL = `[수학적 엄밀함 검증 프로토콜]
 
 1. 선-검증 후-답변 (Verify First):
 - 학생이 "각 A와 각 B가 같다"고 주장하면, 답변 전에 반드시 다음 두 가지를 내부 검토한다.
 - (1) 주어진 조건(가정)이나 이전 단계 결론만으로 이 사실이 증명 가능한가?
-- (2) 학생이 이 주장에 대한 수학적 근거(예: 엇각, 이등변삼각형의 성질 등)를 명시했는가?
+- (2) 학생이 이 주장에 대한 수학적 근거(예: 엇각, 합동 등)를 명시했는가?
 
 2. 근거 없는 비약 차단:
 - 수학적으로 맞더라도 근거 없이 결과만 말하면 "맞았어"라고 하지 않는다.
 - 대신 "왜 그 두 각의 크기가 같다고 생각했니?"처럼 근거를 먼저 묻는다.
 - 결론은 근거를 통해 도출되어야 하고 마지막에 나와야 한다.
-- 학생이 제시하지 않은 근거는 튜터가 추론해서 제시하지 않는다.   
+- 학생이 제시하지 않은 근거는 튜터가 추론해서 제시하지 않는다.
 
 3. 오류 지적 방식:
 - 학생이 틀린 사실(같지 않은 각을 같다고 함)을 말하면 절대 수긍하지 말고 즉시 멈춘다.
@@ -82,7 +92,12 @@ const MATH_VERIFICATION_PROTOCOL = `[수학적 엄밀함 검증 프로토콜]
 
 5. 교사의 가이드(teachingGuide) 절대 준수:
 - 교사가 설정한 'AI 지도 가이드'와 어긋나는 주장은 수학적으로 가능하더라도 경로 이탈을 막아야 한다.
-- "우리 이번 시간에는 [교사의 가이드 방식]을 활용해볼까?"처럼 교사의 지도 경로로 복귀시킨다.`;
+- "우리 이번 시간에는 [교사의 가이드 방식]을 활용해볼까?"처럼 교사의 지도 경로로 복귀시킨다.
+
+6. 증명 결론 누설 금지:
+- 증명·설명 과제에서 **증명해야 할 결론**을 힌트·"~성질을 써 봐"·"~을 이용해 봐"로 제시하지 않는다.
+- 예: ∠B=∠C를 증명하는 문제에서 "이등변삼각형의 두 밑각이 같다"는 성질을 힌트로 주면 안 된다.
+- 힌트는 가정·보조선·합동·정의 등 **결론과 무관한** 중간 단계만 질문한다.`;
 
 const INPUT_MODE_SHORT_LABEL = {
   verbal: '말하기',
@@ -220,9 +235,7 @@ export default function StudentWorkspace() {
       setAiLoading(true);
       try {
         const reply = await fetchAIFeedback({
-          problemContext: problemContextText(problem),
-          teachingGuide: problem.teachingGuide || '',
-          verificationProtocol: MATH_VERIFICATION_PROTOCOL,
+          ...aiProblemParams(problem),
           userText: textToSend,
           imagesBase64: [],
         });
@@ -447,9 +460,7 @@ export default function StudentWorkspace() {
       setAiLoading(true);
       try {
         const reply = await fetchAIFeedback({
-          problemContext: problemContextText(problem),
-          teachingGuide: problem.teachingGuide || '',
-          verificationProtocol: MATH_VERIFICATION_PROTOCOL,
+          ...aiProblemParams(problem),
           userText:
             '(캔버스 필기 이미지 첨부 — 학생이 실제로 그린 내용만 OCR·요약)',
           imagesBase64: latestUrls,
@@ -586,9 +597,7 @@ export default function StudentWorkspace() {
       setAiLoading(true);
       try {
         const reply = await fetchAIFeedback({
-          problemContext: problemContextText(problem),
-          teachingGuide: problem.teachingGuide || '',
-          verificationProtocol: MATH_VERIFICATION_PROTOCOL,
+          ...aiProblemParams(problem),
           userText:
             '(풀이 사진 첨부 — 사진에 실제로 보이는 학생 필기·풀이만 OCR·요약)',
           imagesBase64: [dataUrl],
@@ -725,9 +734,7 @@ export default function StudentWorkspace() {
 
     try {
       const assistantText = await fetchSocraticChatReply({
-        problemContext: problemContextText(problem),
-        teachingGuide: problem.teachingGuide || '',
-        verificationProtocol: MATH_VERIFICATION_PROTOCOL,
+        ...aiProblemParams(problem),
         studentWorkContext,
         attachmentImagesBase64:
           inputMode === 'draw' ? attachmentImagesBase64 : [],

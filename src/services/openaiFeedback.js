@@ -25,7 +25,7 @@ const SYSTEM_PROMPT = `[시스템 프롬프트: 중학교 2학년 기하 전문 
 
 4. 정당화 프로세스 가이드:
 - 1단계 문제 이해 : 주어진 조건(가정) 확인하기 (개념적 비계를 활용하여 문제의 조건과 구하고자 하는 바를 확인하는 질문)
-- 2단계 추론 전략 : 성질을 찾기 위한 근거(성질, 정의) 떠올리기 (전략적 비계를 활용하여 도형의 성질이나 힌트 단서를 제공하는 질문)
+- 2단계 추론 전략 : **이미 배운 다른** 성질·정의·보조선 전략을 떠올리게 하는 질문 (증명할 결론 자체를 성질·도구로 제시하지 않는다)
 - 3단계 논리 전개 : 논리적 순서에 따라 결론 도출하기 (개념적 비계, 전략적 비계를 활용하여 추론의 논리적 순서를 유도하는 질문)
 - 4단계 결론 및 성찰 : 결론을 도출하고 추론의 논리적 순서를 성찰(메타인지적 비계를 활용하여 완성된 논증을 검토하고 유사한 논리구조로 확장을 유도하는 질문)
 - 학생이 1단계를 통과해야만 2단계를 묻는 식으로 힌트를 설정한다.
@@ -40,7 +40,14 @@ const SYSTEM_PROMPT = `[시스템 프롬프트: 중학교 2학년 기하 전문 
 6. 학생 산출물 구분 (엄격):
 - 【문제 맥락】의 명제·조건은 학생이 말·쓴 것이 아니다. 절대 "학생이 ~라고 주장함"처럼 문제 지문을 학생 서술로 바꿔 쓰지 않는다.
 - 【학생 풀이/입력】과 첨부 이미지에 실제로 있는 내용만 학생 풀이로 다룬다.
-- 입력이 없거나 이미지에 필기가 없으면 "아직 풀이가 보이지 않네"라고만 말하고, 문제 이해를 돕는 질문 하나만 한다.`;
+- 입력이 없거나 이미지에 필기가 없으면 "아직 풀이가 보이지 않네"라고만 말하고, 문제 이해를 돕는 질문 하나만 한다.
+
+7. 증명 결론 누설 금지 (엄격):
+- 증명·설명 과제에서 **증명해야 할 결론**을 힌트·성질명·"~을 이용해 봐" 형태로 제시하지 않는다. (결론을 전제로 쓰는 순환 논증)
+- 2단계 힌트는 **이미 배운 다른** 정의·합동·보조선·주어진 가정에서의 관찰만 질문한다. 증명 목표와 동치인 문장·성질은 도구로 쓰지 않는다.
+- 문제 제목·명제에 결론이 드러나도, 학생에게 그 결론을 "알고 있는 성질"처럼 말하지 않는다.
+- 나쁜 예(금지): "이등변삼각형의 두 밑각이 같다는 성질을 사용해 봐" (∠B=∠C를 증명하는 과제)
+- 좋은 예(허용): "AB=AC일 때, A에서 BC에 수선을 내려보면 어떤 두 삼각형이 생길까?"`;
 
 function buildTeacherGuideSystemMessage(teachingGuide) {
   const guide = (teachingGuide || '').trim();
@@ -54,6 +61,76 @@ function buildVerificationProtocolSystemMessage(verificationProtocol) {
   const protocol = (verificationProtocol || '').trim();
   if (!protocol) return null;
   return protocol;
+}
+
+/**
+ * "～일 때, ∠B = ∠C임을 설명하시오" 형 명제에서 증명 목표(결론) 부분을 추출
+ * @param {string} proposition
+ * @returns {string | null}
+ */
+export function extractProofConclusion(proposition) {
+  const p = (proposition || '').trim();
+  if (!p) return null;
+
+  let target = p;
+  const whenIdx = target.lastIndexOf('일 때');
+  if (whenIdx !== -1) {
+    target = target.slice(whenIdx + '일 때'.length).replace(/^[,，]\s*/, '');
+  }
+
+  const goalMatch = target.match(
+    /^(.+?)(?:임을|음을|함을|다음을)\s*(?:설명|증명|보이)/
+  );
+  if (goalMatch) return goalMatch[1].trim();
+
+  return null;
+}
+
+/**
+ * 명제별 증명 결론 누설 방지 시스템 메시지
+ * @param {{ proposition?: string, problemTitle?: string }} options
+ */
+function buildProofGoalGuardSystemMessage({ proposition = '', problemTitle = '' }) {
+  const prop = (proposition || '').trim();
+  if (!prop) return null;
+
+  const conclusion = extractProofConclusion(prop);
+  const lines = [
+    '【증명 과제 — 가정과 결론 구분 (힌트 금지)】',
+    '',
+    `전체 명제: ${prop}`,
+  ];
+
+  if (conclusion) {
+    lines.push(
+      `증명해야 할 결론(학생이 스스로 도출해야 함): ${conclusion}`,
+      '',
+      '힌트·질문 작성 시 절대 금지:',
+      `- "${conclusion}" 또는 이와 동치·동의어·다른 말로 바꾼 표현을 힌트·성질명·"~을 이용해 봐"로 제시하지 않는다.`,
+      '- 증명할 결론을 "이미 알고 있는 성질", "～라는 성질을 써 봐"처럼 전제하지 않는다.',
+      '- 문제 제목에 결론을 암시하는 말이 있어도, 그 결론을 도구로 반복하지 않는다.',
+      '',
+      '허용되는 힌트: 주어진 가정에서의 관찰, 보조선(수선·높이 등)을 질문으로, 합동·정의·엇각 등 **결론과 무관한** 이미 배운 도구.',
+      '',
+      '나쁜 예: "이등변삼각형의 두 밑각이 같다는 성질을 사용해 봐"',
+      '좋은 예: "꼭짓점 A에서 BC에 수선을 내려보면 어떤 두 직각삼각형이 생길까?"'
+    );
+  } else {
+    lines.push(
+      '',
+      '명제에서 증명·설명해야 할 결론을 힌트·성질·"~을 이용해 봐" 형태로 제시하지 않는다.',
+      '가정(조건)과 결론을 구분하고, 결론을 전제로 쓰는 순환 논증 힌트를 금지한다.'
+    );
+  }
+
+  if (problemTitle?.trim()) {
+    lines.push(
+      '',
+      `참고: 문제 제목「${problemTitle.trim()}」에도 결론이 드러날 수 있으나, 힌트로 반복·전제하지 않는다.`
+    );
+  }
+
+  return lines.join('\n');
 }
 
 function buildUserContent(text, imagesBase64) {
@@ -122,6 +199,8 @@ async function requestChatCompletion(body) {
 /**
  * @param {object} options
  * @param {string} options.problemContext - 문제 제목·명제 등 맥락
+ * @param {string} [options.proposition] - 명제 전문 (결론 누설 방지용)
+ * @param {string} [options.problemTitle] - 문제 제목 (결론 누설 방지용)
  * @param {string} [options.teachingGuide] - 교사 지도 가이드
  * @param {string} [options.verificationProtocol] - 수학적 엄밀성 검증 규칙
  * @param {string} [options.userText] - 학생 텍스트
@@ -130,6 +209,8 @@ async function requestChatCompletion(body) {
  */
 export async function fetchAIFeedback({
   problemContext,
+  proposition = '',
+  problemTitle = '',
   teachingGuide = '',
   verificationProtocol = '',
   userText = '',
@@ -144,6 +225,7 @@ export async function fetchAIFeedback({
     problemContext || '(문제 정보 없음)',
     '',
     '위 명제·조건을 학생이 주장·서술한 것처럼 요약하거나 인용하지 마라.',
+    '증명·설명해야 할 결론을 "성질"·"~을 이용해 봐" 형태의 힌트로 제시하지 마라.',
   ].join('\n');
 
   const studentWorkSystemMessage = [
@@ -167,6 +249,10 @@ export async function fetchAIFeedback({
   const teacherGuideMessage = buildTeacherGuideSystemMessage(teachingGuide);
   const verificationProtocolMessage =
     buildVerificationProtocolSystemMessage(verificationProtocol);
+  const proofGoalGuardMessage = buildProofGoalGuardSystemMessage({
+    proposition: proposition || problemContext,
+    problemTitle,
+  });
 
   const body = {
     model: 'gpt-4o',
@@ -174,6 +260,9 @@ export async function fetchAIFeedback({
       { role: 'system', content: SYSTEM_PROMPT },
       ...(verificationProtocolMessage
         ? [{ role: 'system', content: verificationProtocolMessage }]
+        : []),
+      ...(proofGoalGuardMessage
+        ? [{ role: 'system', content: proofGoalGuardMessage }]
         : []),
       ...(teacherGuideMessage
         ? [{ role: 'system', content: teacherGuideMessage }]
@@ -202,6 +291,8 @@ const SOCRATIC_SYSTEM_PROMPT = `[시스템 프롬프트: 중학교 2학년 기�
 - 절대 정답이나 완성된 증명식을 먼저 제시하지 않는다.
 - 학생이 현재 단원(이등변삼각형, 삼각형의 외심/내심, 사각형의 성질 등)에서 배운 개념만 사용해 추론하도록 유도한다.
 - 단계별 발문 중심으로 유도한다.
+- 증명·설명 과제에서 **증명할 결론**을 "성질", "~을 이용해 봐", "알고 있는 ~" 형태의 힌트로 제시하지 않는다.
+- 2단계 힌트는 **이미 배운 다른** 정의·합동·보조선·가정에서의 관찰만 질문한다.
 
 3. 피드백 폭주 방지 규칙 (엄격 준수):
 - 한 번의 답변에는 반드시 '하나의 질문' 또는 '하나의 힌트'만 포함한다.
@@ -210,7 +301,7 @@ const SOCRATIC_SYSTEM_PROMPT = `[시스템 프롬프트: 중학교 2학년 기�
 
 4. 정당화 프로세스 가이드:
 - 1단계: 주어진 조건(가정) 확인하기
-- 2단계: 성질을 찾기 위한 근거(성질, 정의) 떠올리기
+- 2단계: **이미 배운 다른** 성질·정의·보조선 전략 떠올리기 (증명할 결론 자체를 성질로 제시하지 않음)
 - 3단계: 논리적 순서에 따라 결론 도출하기
 - 학생이 1단계를 통과해야만 2단계를 묻는 식으로 힌트를 설정한다.
 
@@ -229,6 +320,8 @@ const SOCRATIC_SYSTEM_PROMPT = `[시스템 프롬프트: 중학교 2학년 기�
  * 양방향 Socratic 채팅 전용
  * @param {object} options
  * @param {string} options.problemContext
+ * @param {string} [options.proposition]
+ * @param {string} [options.problemTitle]
  * @param {string} [options.teachingGuide]
  * @param {string} [options.verificationProtocol]
  * @param {string} options.studentWorkContext - 학생이 실제로 입력·제출한 내용만 기술한 문자열
@@ -238,6 +331,8 @@ const SOCRATIC_SYSTEM_PROMPT = `[시스템 프롬프트: 중학교 2학년 기�
  */
 export async function fetchSocraticChatReply({
   problemContext,
+  proposition = '',
+  problemTitle = '',
   teachingGuide = '',
   verificationProtocol = '',
   studentWorkContext,
@@ -258,6 +353,10 @@ export async function fetchSocraticChatReply({
   const teacherGuideMessage = buildTeacherGuideSystemMessage(teachingGuide);
   const verificationProtocolMessage =
     buildVerificationProtocolSystemMessage(verificationProtocol);
+  const proofGoalGuardMessage = buildProofGoalGuardSystemMessage({
+    proposition: proposition || problemContext,
+    problemTitle,
+  });
 
   const body = {
     model: 'gpt-4o',
@@ -267,6 +366,9 @@ export async function fetchSocraticChatReply({
       { role: 'system', content: SOCRATIC_SYSTEM_PROMPT },
       ...(verificationProtocolMessage
         ? [{ role: 'system', content: verificationProtocolMessage }]
+        : []),
+      ...(proofGoalGuardMessage
+        ? [{ role: 'system', content: proofGoalGuardMessage }]
         : []),
       ...(teacherGuideMessage
         ? [{ role: 'system', content: teacherGuideMessage }]
