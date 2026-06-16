@@ -124,9 +124,8 @@ ${studentWork || '(없음)'}
 - feedback은 한국어로, 이 항목에 대해 짧고 구체적으로(잘한 점/부족한 점).`;
 
   const body = {
-    model: 'gpt-4o',
-    temperature: 0.12,
-    max_tokens: 3500,
+    model: 'gpt-5-mini',
+    max_completion_tokens: 3500,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: RUBRIC_GRADING_SYSTEM },

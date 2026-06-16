@@ -16,6 +16,7 @@ import 'katex/dist/katex.min.css';
 
 import Button from '../components/Button';
 import GeometrySymbolInput from '../components/GeometrySymbolInput';
+import AIFeedbackMessage from '../components/AIFeedbackMessage';
 import MathMarkdown from '../components/MathMarkdown';
 import ScoreBreakdownSection from '../components/ScoreBreakdownSection';
 import { captureDomToPdf } from '../lib/captureDomToPdf';
@@ -421,9 +422,15 @@ export default function StudentWorkspace() {
 
   const collectCanvasDataUrls = useCallback(() => {
     return canvasPages
-      .map((page) => canvasRefs.current[page.id])
-      .filter(Boolean)
-      .map((canvas) => canvas.toDataURL('image/png', 0.92));
+      .map((page) => ({
+        page,
+        canvas: canvasRefs.current[page.id],
+      }))
+      .filter(
+        ({ canvas }) => canvas && canvasHasNonWhiteDrawing(canvas)
+      )
+      .slice(-2)
+      .map(({ canvas }) => canvas.toDataURL('image/jpeg', 0.82));
   }, [canvasPages]);
 
   const scheduleCanvasVision = useCallback(() => {
@@ -919,7 +926,7 @@ export default function StudentWorkspace() {
               나의 풀이
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              방식을 선택한 뒤 풀이해 보세요. GPT-4o가 힌트 피드백을 제공합니다.
+              방식을 선택한 뒤 풀이해 보세요. GPT-5-mini가 힌트 피드백을 제공합니다.
             </p>
           </div>
 
@@ -1220,7 +1227,11 @@ export default function StudentWorkspace() {
                 }`}
               >
                 <div className="max-w-[95%] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-                  <MathMarkdown>{msg.text}</MathMarkdown>
+                  {msg.role === 'assistant' ? (
+                    <AIFeedbackMessage text={msg.text} />
+                  ) : (
+                    <MathMarkdown>{msg.text}</MathMarkdown>
+                  )}
                   <span className="mt-2 block text-xs text-slate-400">
                     {msg.timestamp}
                   </span>
@@ -1370,7 +1381,11 @@ export default function StudentWorkspace() {
         <ol className="mt-2 list-decimal space-y-3 pl-5 text-sm">
           {chatMessages.map((m) => (
             <li key={m.id}>
-              <MathMarkdown>{m.text}</MathMarkdown>
+              {m.role === 'assistant' ? (
+                <AIFeedbackMessage text={m.text} variant="print" />
+              ) : (
+                <MathMarkdown>{m.text}</MathMarkdown>
+              )}
             </li>
           ))}
         </ol>

@@ -1,7 +1,13 @@
 /**
- * GPT-4o 기반 힌트(Scaffolding) 피드백
+ * GPT 기반 힌트(Scaffolding) 피드백
  * Vite: import.meta.env.VITE_OPENAI_API_KEY
  */
+
+import {
+  getAutoFeedbackRequestOptions,
+  getSocraticRequestOptions,
+  SOCRATIC_HISTORY_LIMIT,
+} from '../lib/openaiModelConfig';
 
 const CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 
@@ -25,7 +31,7 @@ const SYSTEM_PROMPT = `[시스템 프롬프트: 중학교 2학년 기하 전문 
 
 4. 정당화 프로세스 가이드:
 - 1단계 문제 이해 : 주어진 조건(가정) 확인하기 (개념적 비계를 활용하여 문제의 조건과 구하고자 하는 바를 확인하는 질문)
-- 2단계 추론 전략 : **이미 배운 다른** 성질·정의·보조선 전략을 떠올리게 하는 질문 (증명할 결론 자체를 성질·도구로 제시하지 않는다)
+- 2단계 추론 전략 : 중2까지 교육과정중 이미 배운 다른 성질·정의·보조선 전략을 떠올리게 하는 질문 (증명할 결론 자체를 성질·도구로 제시하지 않는다)
 - 3단계 논리 전개 : 논리적 순서에 따라 결론 도출하기 (개념적 비계, 전략적 비계를 활용하여 추론의 논리적 순서를 유도하는 질문)
 - 4단계 결론 및 성찰 : 결론을 도출하고 추론의 논리적 순서를 성찰(메타인지적 비계를 활용하여 완성된 논증을 검토하고 유사한 논리구조로 확장을 유도하는 질문)
 - 학생이 1단계를 통과해야만 2단계를 묻는 식으로 힌트를 설정한다.
@@ -47,7 +53,18 @@ const SYSTEM_PROMPT = `[시스템 프롬프트: 중학교 2학년 기하 전문 
 - 2단계 힌트는 **이미 배운 다른** 정의·합동·보조선·주어진 가정에서의 관찰만 질문한다. 증명 목표와 동치인 문장·성질은 도구로 쓰지 않는다.
 - 문제 제목·명제에 결론이 드러나도, 학생에게 그 결론을 "알고 있는 성질"처럼 말하지 않는다.
 - 나쁜 예(금지): "이등변삼각형의 두 밑각이 같다는 성질을 사용해 봐" (∠B=∠C를 증명하는 과제)
-- 좋은 예(허용): "AB=AC일 때, A에서 BC에 수선을 내려보면 어떤 두 삼각형이 생길까?"`;
+- 좋은 예(허용): "∠B=∠C을 보이려면 두 각을 각각 포함하는 삼각형을 생각해볼까?""A에서 BC에 수선을 내려보면 어떤 두 삼각형이 생길까?"
+
+8. 출력 형식 (필수 — 자동 피드백 응답):
+- 반드시 아래 두 블록만 이 순서로 출력한다. 앞뒤 인사·머리말·다른 제목을 붙이지 않는다.
+- [학생풀이요약]: 학생이 실제로 입력·말하기·필기·사진에 보이는 내용만 1~2문장으로 정리한다. 문제 지문은 넣지 않는다. 풀이가 없으면 "아직 작성된 풀이가 보이지 않습니다."만 쓴다.
+- [피드백]: 질문 중심 힌트 1개(최대 3문장). 규칙 3의 '하나의 질문/힌트'는 이 블록에만 적용한다.
+
+[학생풀이요약]
+(요약 내용)
+
+[피드백]
+(힌트·질문 내용)`;
 
 function buildTeacherGuideSystemMessage(teachingGuide) {
   const guide = (teachingGuide || '').trim();
@@ -236,14 +253,16 @@ export async function fetchAIFeedback({
         : '(학생 입력 없음)'),
     '',
     '규칙:',
-    '- 학생이 실제로 쓰거나 말한 내용만 짧게 언급한 뒤, 질문 중심 힌트 하나만 준다.',
-    '- 텍스트가 없고 이미지에 필기·도형이 없으면 풀이 없음으로 처리하고, "아직 풀이가 보이지 않네"라고만 말한 뒤 문제 이해를 돕는 질문 하나만 한다.',
+    '- 응답은 반드시 [학생풀이요약] 블록 다음 [피드백] 블록 두 부분으로만 작성한다.',
+    '- [학생풀이요약]에는 학생이 실제로 쓰거나 말한 내용·이미지 필기만 1~2문장으로 정리한다.',
+    '- [피드백]에는 질문 중심 힌트 하나만 준다(최대 3문장).',
+    '- 텍스트가 없고 이미지에 필기·도형이 없으면 [학생풀이요약]에 "아직 작성된 풀이가 보이지 않습니다."만 쓰고, [피드백]에서 문제 이해를 돕는 질문 하나만 한다.',
     '- 문제 지문의 조건(예: AB=AC, ∠B=∠C)을 학생이 말한 것처럼 재서술하지 않는다.',
   ].join('\n');
 
   const userPrompt = hasImages
-    ? '첨부 이미지에서 학생이 실제로 그린 필기·도형만 읽는다. 빈 캔버스이면 학생 풀이를 추측·요약하지 말고, 풀이 없음으로 처리한 뒤 질문 하나만 한다. 필기가 있으면 그 내용만 짧게 언급한 뒤 질문 하나.'
-    : '위 【학생 풀이/입력】에 근거해 질문 중심 힌트 하나만 줘. 입력이 (학생 입력 없음)이면 풀이 요약 없이 격려와 첫 질문만 한다.';
+    ? '첨부 이미지에서 학생이 실제로 그린 필기·도형만 읽는다. 빈 캔버스이면 [학생풀이요약]에 풀이 없음만 쓰고, [피드백]에 질문 하나만 한다. 필기가 있으면 [학생풀이요약]에 그 내용만 정리한 뒤 [피드백]에 질문 하나.'
+    : '위 【학생 풀이/입력】에 근거해 [학생풀이요약]과 [피드백] 두 블록으로만 답한다. 입력이 (학생 입력 없음)이면 [학생풀이요약]에 풀이 없음만 쓰고 [피드백]에 격려와 첫 질문만 한다.';
 
   const userContent = buildUserContent(userPrompt, imgs);
   const teacherGuideMessage = buildTeacherGuideSystemMessage(teachingGuide);
@@ -254,28 +273,28 @@ export async function fetchAIFeedback({
     problemTitle,
   });
 
+  const supplementalContext = [
+    verificationProtocolMessage,
+    proofGoalGuardMessage,
+    teacherGuideMessage,
+    problemSystemMessage,
+    studentWorkSystemMessage,
+  ]
+    .filter(Boolean)
+    .join('\n\n---\n\n');
+
   const body = {
-    model: 'gpt-4o',
+    ...getAutoFeedbackRequestOptions(hasImages),
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
-      ...(verificationProtocolMessage
-        ? [{ role: 'system', content: verificationProtocolMessage }]
+      ...(supplementalContext
+        ? [{ role: 'system', content: supplementalContext }]
         : []),
-      ...(proofGoalGuardMessage
-        ? [{ role: 'system', content: proofGoalGuardMessage }]
-        : []),
-      ...(teacherGuideMessage
-        ? [{ role: 'system', content: teacherGuideMessage }]
-        : []),
-      { role: 'system', content: problemSystemMessage },
-      { role: 'system', content: studentWorkSystemMessage },
       {
         role: 'user',
         content: userContent,
       },
     ],
-    max_tokens: 600,
-    temperature: 0.55,
   };
 
   return requestChatCompletion(body);
@@ -349,7 +368,8 @@ export async function fetchSocraticChatReply({
     .map((m) => ({
       role: m.role,
       content: m.text,
-    }));
+    }))
+    .slice(-SOCRATIC_HISTORY_LIMIT);
   const teacherGuideMessage = buildTeacherGuideSystemMessage(teachingGuide);
   const verificationProtocolMessage =
     buildVerificationProtocolSystemMessage(verificationProtocol);
@@ -359,9 +379,7 @@ export async function fetchSocraticChatReply({
   });
 
   const body = {
-    model: 'gpt-4o',
-    temperature: 0.45,
-    max_tokens: 500,
+    ...getSocraticRequestOptions(),
     messages: [
       { role: 'system', content: SOCRATIC_SYSTEM_PROMPT },
       ...(verificationProtocolMessage

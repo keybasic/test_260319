@@ -7,17 +7,17 @@
 export const API_RATE = {
   /** 말하기/텍스트: 입력 안정화 후 전송 + 연속 호출 간 최소 간격 */
   verbal: {
-    debounceMs: 900,
-    minIntervalMs: 3500,
+    debounceMs: 650,
+    minIntervalMs: 2200,
   },
   /** 캔버스: 필기 멈춤 후 캡처 + 비전 호출 간 최소 간격 */
   canvas: {
-    idleDebounceMs: 1000,
-    minIntervalMs: 4500,
+    idleDebounceMs: 750,
+    minIntervalMs: 2800,
   },
   /** 사진: 연속 업로드 시 최소 간격 */
   photo: {
-    minIntervalMs: 3000,
+    minIntervalMs: 2200,
   },
 };
 
