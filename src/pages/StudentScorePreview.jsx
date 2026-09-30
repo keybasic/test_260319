@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ClipboardList, Loader2 } from 'lucide-react';
+import 'katex/dist/katex.min.css';
 import Button from '../components/Button';
+import MathMarkdown from '../components/MathMarkdown';
 import ScoreBreakdownSection from '../components/ScoreBreakdownSection';
 import { useProblems } from '../context/ProblemsContext';
 import {
@@ -145,9 +147,9 @@ export default function StudentScorePreview() {
             {problem.title}
           </p>
           {problem.proposition ? (
-            <p className="mt-2 text-xs leading-relaxed text-slate-700 whitespace-pre-wrap sm:text-sm">
+            <MathMarkdown className="mt-2 text-xs leading-relaxed text-slate-700 sm:text-sm">
               {problem.proposition}
-            </p>
+            </MathMarkdown>
           ) : null}
         </section>
 
