@@ -441,7 +441,7 @@ export async function resolveScoreBreakdown(problem, workSnapshot) {
       stepsConfigured: true,
       breakdown: mergeRubricApiToBreakdown(steps, sources, rubricPayload),
       scoreNote:
-        'GPT-4o 루브릭 의미 채점 결과입니다. (가정→근거→결론 연계를 분석합니다)',
+        'GPT-5-mini 루브릭 의미 채점 결과입니다. (가정→근거→결론 연계를 분석합니다)',
     };
   } catch (e) {
     return {
